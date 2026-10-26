@@ -112,3 +112,10 @@ details.recur > summary { cursor: pointer; padding: .2rem 0 .6rem; list-style: n
 details.recur { padding-bottom: .4rem; }
 input[type=checkbox] { width: 1.15rem; height: 1.15rem; min-height: 0; padding: 0; accent-color: var(--accent); }
 .budget td.auto label { display: flex; align-items: center; gap: .4rem; }
+
+.tabs.seg { display: inline-flex; margin: 0; } .tabs.seg .btn { flex: none; }
+.budget.yearly table { min-width: 960px; font-size: .82rem; } .budget.yearly th, .budget.yearly td { padding: .35rem .4rem; }
+.budget.yearly td:first-child, .budget.yearly th:first-child { position: sticky; left: 0; background: var(--surface); min-width: 170px; max-width: 200px; z-index: 1; }
+.budget.yearly tr.head td:first-child { background: var(--brand); } .budget.yearly tr.group td:first-child { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.budget.yearly tr.total td:first-child { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.budget.yearly .yr { font-weight: 700; border-left: 2px solid var(--border); }

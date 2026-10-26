@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.8.0",
+    "date": "2026-10-26",
+    "items": [
+      "Budgetplan: neue Ansicht «Jahresbudget» mit allen 12 Monaten, Jahrestotal und Wahl zwischen Soll, Ist und Abweichung",
+      "Budgetplan Monatsansicht: alle Monate des laufenden und des nächsten Jahres wählbar (auch künftige Monate)"
+    ]
+  },
+  {
     "version": "0.7.0",
     "date": "2026-10-26",
     "items": [

@@ -8,16 +8,97 @@ import { lookup } from './categories.js';
 import { $, esc, chf, fmt, signed, tone, arrow, monthKey, monthLabel, sum } from './util.js';
 
 let month = monthKey(new Date().toISOString());
+let mode = 'month';           // 'month' | 'year'
+let year = +month.slice(0, 4);
+let yview = 'soll';          // 'soll' | 'ist' | 'diff'
+let showEmpty = false;
 
 const monthsList = () => {
   const keys = new Set(calc.lastMonths(12));
+  const y = +monthKey(new Date().toISOString()).slice(0, 4);
+  for (let m = 1; m <= 12; m++) { keys.add(`${y}-${String(m).padStart(2, '0')}`); keys.add(`${y + 1}-${String(m).padStart(2, '0')}`); }
   for (const t of [...db().income, ...db().expense]) keys.add(monthKey(t.date));
   keys.add(month);
   return [...keys].sort().reverse();
 };
 const rangeOf = m => { const [y, mo] = m.split('-').map(Number); const last = new Date(y, mo, 0).getDate(); return [`${m}-01`, `${m}-${String(last).padStart(2, '0')}`]; };
 
+const modeTabs = () => `<div class="tabs seg"><button class="btn ${mode === 'month' ? 'primary' : ''}" data-mode="month">Monat</button><button class="btn ${mode === 'year' ? 'primary' : ''}" data-mode="year">Jahresbudget</button></div>`;
+const wireTabs = el => el.querySelectorAll('[data-mode]').forEach(b => { b.onclick = () => { mode = b.dataset.mode; render(el); }; });
+
 export function render(el) {
+  if (mode === 'year') renderYear(el); else renderMonth(el);
+}
+
+function renderYear(el) {
+  const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
+  const actualBy = list => {
+    const byM = new Map(months.map(m => [m, new Map()]));
+    for (const t of list) { const m = monthKey(t.date); if (byM.has(m)) { const k = canonical(t.category); byM.get(m).set(k, (byM.get(m).get(k) || 0) + calc.txChf(t)); } }
+    return byM;
+  };
+  const inc = actualBy(db().income), exp = actualBy(db().expense);
+  const savNames = new Set(SAVINGS_GROUPS.flatMap(g => g.positions.map(p => p.name)));
+  const val = (name, m, act) => {
+    const sl = sollAt(name, m), is = act.get(m).get(name) || 0;
+    return yview === 'soll' ? sl : yview === 'ist' ? is : is - sl;
+  };
+  // Zeilen je Gruppe (Positionen mit Daten, bei «leere anzeigen» alle)
+  const build = (groups, act, kind) => {
+    const known = new Set(groups.flatMap(g => g.positions.map(p => p.name)));
+    const extraNames = new Set();
+    for (const m of months) for (const k of act.get(m).keys()) if (!known.has(k) && !(kind === 'expense' && savNames.has(k)) && !(kind === 'expense' && isKnown(k) && lookup(k).kind === 'income')) extraNames.add(k);
+    for (const k of Object.keys(db().settings.budget || {})) if (!isKnown(k) && kind === 'expense') extraNames.add(k);
+    const all = kind === 'savings' ? groups : [...groups, ...(extraNames.size ? [{ name: 'Weitere Positionen', positions: [...extraNames].map(name => ({ name })) }] : [])];
+    return all.map(g => {
+      const rows = g.positions.map(p => ({ name: p.name, v: months.map(m => val(p.name, m, act)) }))
+        .filter(r => showEmpty || r.v.some(x => Math.abs(x) > 0.004));
+      return { name: g.name, rows, v: months.map((_, i) => sum(rows, r => r.v[i])) };
+    }).filter(g => showEmpty || g.rows.length);
+  };
+  const incG = build(INCOME_GROUPS, inc, 'income'), expG = build(EXPENSE_GROUPS, exp, 'expense'), savG = build(SAVINGS_GROUPS, exp, 'savings');
+  const colSum = gs => months.map((_, i) => sum(gs, g => g.v[i]));
+  const tI = colSum(incG), tE = colSum(expG), tS = colSum(savG);
+  const free = tI.map((v, i) => v - tE[i]);
+  const rest = free.map((v, i) => v - tS[i]);
+
+  const diffView = yview === 'diff';
+  const cellOf = (v, good) => {
+    if (!v || Math.abs(v) < 0.005) return '<td class="num"></td>';
+    return `<td class="num${diffView ? ` ${tone(good ? v : -v)}` : ''}">${diffView ? signed(v) : fmt(v, 0)}</td>`;
+  };
+  const line = (label, v, good, cls = '') => `<tr class="${cls}"><td>${esc(label)}</td>${v.map(x => cellOf(x, good)).join('')}${cellOf(sum(v), good).replace('<td class="num', '<td class="num yr')}</tr>`;
+  const sec = (title, gs, total, good, totalLabel) => `<tr class="head"><td colspan="14">${esc(title)}</td></tr>
+    ${gs.map((g, n) => `<tr class="group"><td colspan="14">${title === 'AUSGABEN' ? `${n + 1}. ` : ''}${esc(g.name)}</td></tr>${g.rows.map(r => line(r.name, r.v, good)).join('')}`).join('')}
+    ${line(totalLabel, total, good, 'total')}`;
+  const years = [...new Set([year - 1, year, year + 1, year + 2, year + 3, +monthKey(new Date().toISOString()).slice(0, 4)])].sort();
+  const label = { soll: 'Soll (Plan)', ist: 'Ist (erfasste Buchungen)', diff: 'Abweichung Ist – Soll' }[yview];
+
+  el.innerHTML = `
+    <div class="pagehead"><h1>Budgetplan</h1>${modeTabs()}</div>
+    <div class="toolbar">
+      <select id="year">${years.map(y => `<option value="${y}"${y === year ? ' selected' : ''}>${y}</option>`).join('')}</select>
+      <select id="yview"><option value="soll"${yview === 'soll' ? ' selected' : ''}>Soll (Plan)</option><option value="ist"${yview === 'ist' ? ' selected' : ''}>Ist (Buchungen)</option><option value="diff"${yview === 'diff' ? ' selected' : ''}>Abweichung</option></select>
+      <label class="row small"><input type="checkbox" id="empty"${showEmpty ? ' checked' : ''}> leere Positionen anzeigen</label>
+    </div>
+    <p class="muted">Jahresbudget ${year} – ${esc(label)}, Beträge in CHF. Soll-Änderungen nimmst du in der Monatsansicht vor.</p>
+    <div class="card tablewrap budget yearly"><table>
+      <thead><tr><th>Position</th>${months.map(m => `<th class="num">${monthLabel(m).replace(/ \d+$/, '')}</th>`).join('')}<th class="num yr">Jahr</th></tr></thead>
+      <tbody>
+      ${sec('EINNAHMEN', incG, tI, true, 'Total Einnahmen')}
+      ${sec('AUSGABEN', expG, tE, false, 'TOTAL AUSGABEN')}
+      ${line('FREIES EINKOMMEN', free, true, 'total big')}
+      ${sec('VORSORGE & VERMÖGENSAUFBAU', savG, tS, true, 'Total Spar- & Vorsorgerate')}
+      ${line('RESTBETRAG / PUFFER NACH SPARRATE', rest, true, 'total big')}
+      </tbody></table></div>`;
+  wireTabs(el);
+  $('#year', el).onchange = e => { year = +e.target.value; render(el); };
+  $('#yview', el).onchange = e => { yview = e.target.value; render(el); };
+  $('#empty', el).onchange = e => { showEmpty = e.target.checked; render(el); };
+  el.onchange = null;
+}
+
+function renderMonth(el) {
   const r = rangeOf(month);
   const actual = list => {
     const m = new Map();
@@ -68,7 +149,7 @@ export function render(el) {
     ${sumRow(totalLabel, t, 0, hi, 'total')}`;
 
   el.innerHTML = `
-    <div class="pagehead"><h1>Budgetplan</h1>
+    <div class="pagehead"><h1>Budgetplan</h1>${modeTabs()}
       <div class="row"><select id="month">${monthsList().map(m => `<option value="${m}"${m === month ? ' selected' : ''}>${monthLabel(m)}</option>`).join('')}</select></div></div>
     <p class="muted">«Soll» = geplanter Monatsbetrag in CHF; eine Änderung gilt ab dem gewählten Monat, frühere Monate bleiben unverändert. «Ist» = erfasste Buchungen im gewählten Monat.</p>
     <p class="muted"><b>Auto:</b> Häkchen setzen = der Sollbetrag wird ab dem gewählten Monat jeden Monat automatisch als Buchung übernommen. Erfasst du in einem Monat selbst etwas in dieser Kategorie, ersetzt es die automatische Buchung dieses Monats.</p>
@@ -83,6 +164,7 @@ export function render(el) {
       </tbody></table></div>
     <p class="muted small">Beträge in CHF. Die Excel-Vorlage enthält dasselbe Blatt «Budgetplan» zum Ausfüllen und Importieren.</p>`;
 
+  wireTabs(el);
   $('#month', el).onchange = e => { month = e.target.value; render(el); };
   el.onchange = async e => {
     const inp = e.target.closest('input.soll');
