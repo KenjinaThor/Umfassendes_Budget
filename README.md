@@ -3,10 +3,16 @@
 Persönliche Budget- und Vermögens-App (Einnahmen · Ausgaben · Vermögen) für den Kollegenkreis.
 Läuft als **PWA** auf Android, iOS und Windows – ohne App-Store, direkt aus GitHub Pages, ohne Server und ohne Build-Schritt.
 
+## Betriebsarten
+- **Cloud (empfohlen):** Supabase-Konto-Login, Synchronisation über mehrere Geräte, Haushalte. Einrichtung: [`docs/SUPABASE.md`](docs/SUPABASE.md), Zugangsdaten in `js/config.js`.
+- **Lokal:** `js/config.js` leer lassen → ein Gerät, nur Passwort, keine Synchronisation.
+
 ## Datenschutz
-- Alle Daten bleiben **lokal auf dem Gerät** (IndexedDB) und sind mit **AES-256-GCM** verschlüsselt; der Schlüssel wird per PBKDF2 (600 000 Iterationen) aus dem Passwort abgeleitet. Klartext existiert nur im Arbeitsspeicher.
+- Alle Daten sind **Ende-zu-Ende mit AES-256-GCM verschlüsselt**; Schlüssel werden im Browser per PBKDF2 (600 000 Iterationen) aus dem Passwort abgeleitet. Das echte Passwort sieht nie ein Server (Supabase erhält nur ein davon abgeleitetes Login-Geheimnis). Klartext existiert nur im Arbeitsspeicher; auf dem Gerät liegt eine verschlüsselte Offline-Kopie.
+- Haushalte: jeder Haushalt hat einen eigenen Schlüssel, der per einmaligem Einladungscode weitergegeben wird. Nur als «Gemeinsam» markierte Einträge liegen im Haushalts-Datensatz.
+- Biometrie: optional über Passkeys (WebAuthn-PRF), nur auf Geräten mit Unterstützung.
 - Automatische Sperre nach Inaktivität. **Kein Passwort-Reset möglich** – bei Verlust sind die Daten weg.
-- Es gibt kein Backend, kein Tracking. Die App kontaktiert nur: `api.frankfurter.dev` (Wechselkurse), `api.gold-api.com` (Metalle), `api.twelvedata.com` (Aktien, nur mit eigenem Schlüssel). Dabei werden Symbole/Währungen, aber **keine Beträge** übertragen.
+- Es gibt kein eigenes Backend, kein Tracking. Die App kontaktiert nur: `api.frankfurter.dev` (Wechselkurse), `api.gold-api.com` (Metalle), `api.twelvedata.com` (Aktien, nur mit eigenem Schlüssel). Dabei werden Symbole/Währungen, aber **keine Beträge** übertragen.
 - Strikte Content-Security-Policy, alle Bibliotheken liegen lokal in `vendor/`.
 - Das Repository enthält nur Code, nie Nutzerdaten. Excel-Dateien mit echten Daten **nicht committen**.
 

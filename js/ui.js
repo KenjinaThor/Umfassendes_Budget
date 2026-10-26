@@ -31,6 +31,7 @@ function fieldHtml(f, v) {
   const val = v ?? f.value ?? '';
   const only = f.only ? ` data-only="${f.only.join(' ')}"` : '';
   const req = f.required ? ' required' : '';
+  if (f.type === 'checkbox') return `<label class="field check"${only}><input type="checkbox" name="${f.name}" value="1"${v ? ' checked' : ''}><span>${esc(f.label)}</span></label>`;
   let input;
   if (f.type === 'select') {
     input = `<select name="${f.name}"${req}>${f.options.map(([k, l]) => `<option value="${esc(k)}"${k === val ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;

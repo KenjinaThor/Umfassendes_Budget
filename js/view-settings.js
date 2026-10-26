@@ -5,8 +5,9 @@ import * as excel from './excel.js';
 import * as fx from './fx.js';
 import { check } from './plausibility.js';
 import { $, esc, download, today, dispDate, uid, fmtDate } from './util.js';
-import { openDialog, closeDialog, confirmBox, toast } from './ui.js';
+import { openDialog, closeDialog, confirmBox, toast, formDialog } from './ui.js';
 import { currentVersion, showWhatsNew } from './update.js';
+import * as passkey from './passkey.js';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -76,8 +77,30 @@ function demo() {
 export async function render(el, { lock, rerender, applyName }) {
   const s = db().settings;
   const ver = await currentVersion();
+  const bioSupported = store.isCloud && passkey.supported();
+  const bioOn = bioSupported && await passkey.isEnrolled();
+  const hh = store.householdInfo();
   el.innerHTML = `
     <div class="pagehead"><h1>Einstellungen</h1></div>
+
+    ${store.isCloud ? `
+    <section class="card"><h2>Konto</h2>
+      <p><b>${esc(store.account().email)}</b></p>
+      <label class="field"><span>Anzeigename (sichtbar für Haushaltsmitglieder)</span><input id="a-name" maxlength="60" value="${esc(store.account().displayName)}"></label>
+      <div class="row wrap"><button class="btn" id="a-pw">Passwort ändern</button>
+        ${bioSupported ? `<button class="btn" id="a-bio">${bioOn ? 'Biometrie deaktivieren' : 'Biometrie aktivieren'}</button>` : ''}
+        <button class="btn" id="a-out">Abmelden</button><button class="btn danger" id="a-del">Konto löschen</button></div>
+      <p class="muted small">Alle Daten sind Ende-zu-Ende-verschlüsselt; der Server sieht nur Chiffretext.</p></section>
+
+    <section class="card"><h2>Haushalt</h2>
+      ${hh ? `<p>Mitglieder: <b>${hh.members.map(esc).join(', ') || '–'}</b></p>
+        <p class="muted small">Einträge mit «Gemeinsam» sehen und bearbeiten alle Mitglieder. Alles andere bleibt privat.</p>
+        <div class="row wrap"><button class="btn primary" id="h-invite">Einladungscode erzeugen</button><button class="btn danger" id="h-leave">Haushalt verlassen</button></div>
+        <div id="h-code"></div>`
+      : `<p class="muted">Verknüpfe dich mit Partner/in oder Familie, um ausgewählte Einträge gemeinsam zu führen.</p>
+        <div class="row wrap"><button class="btn primary" id="h-create">Haushalt erstellen</button></div>
+        <div class="row" style="margin-top:.8rem"><input id="h-codein" placeholder="Einladungscode (XXXX-XXXX-…)" autocomplete="off"><button class="btn" id="h-join">Beitreten</button></div>`}
+    </section>` : ''}
 
     <section class="card"><h2>Allgemein</h2>
       <label class="field"><span>App-Name</span><input id="s-name" maxlength="40" value="${esc(s.appName || 'Umfassendes Budget')}"></label></section>
@@ -91,7 +114,7 @@ export async function render(el, { lock, rerender, applyName }) {
       </div></section>
 
     <section class="card"><h2>Marktdaten</h2>
-      <p class="muted">Aktien/ETFs: kostenloser API-Schlüssel von <b>twelvedata.com</b>. Edelmetalle und Wechselkurse benötigen keinen Schlüssel. Der Schlüssel wird nur verschlüsselt auf diesem Gerät gespeichert.</p>
+      <p class="muted">Aktien/ETFs: kostenloser API-Schlüssel von <b>twelvedata.com</b>. Edelmetalle und Wechselkurse benötigen keinen Schlüssel. Der Schlüssel wird nur verschlüsselt gespeichert.</p>
       <label class="field"><span>Twelve-Data-API-Schlüssel</span><input id="s-key" type="password" autocomplete="off" value="${esc(s.twelveDataKey)}"></label></section>
 
     <section class="card"><h2>Sicherheit & Backup</h2>
@@ -105,11 +128,49 @@ export async function render(el, { lock, rerender, applyName }) {
       <p class="muted small">Letztes Backup: ${s.lastBackup ? dispDate(fmtDate(new Date(s.lastBackup))) : 'noch nie'}. Ohne Passwort gibt es keine Wiederherstellung.</p></section>
 
     <section class="card"><h2>Daten</h2>
-      <div class="row wrap"><button class="btn" id="d-demo">Demodaten laden</button><button class="btn danger" id="d-wipe">Alle Daten löschen</button></div></section>
+      <div class="row wrap"><button class="btn" id="d-demo">Demodaten laden</button><button class="btn danger" id="d-wipe">${store.isCloud ? 'Lokale Daten entfernen' : 'Alle Daten löschen'}</button></div></section>
 
     <section class="card"><h2>Über die App</h2>
       <p>Version <b>${esc(ver)}</b></p>
       <div class="row wrap"><button class="btn" id="u-log">Versionshistorie</button><button class="btn" id="u-check">Nach Update suchen</button></div></section>`;
+
+
+  if (store.isCloud) {
+    const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message); } };
+    $('#a-name', el).onchange = guard(async e => { await store.setDisplayName(e.target.value.trim()); toast('Gespeichert'); });
+    $('#a-pw', el).onclick = guard(async () => {
+      const v = await formDialog({ title: 'Passwort ändern', submit: 'Ändern', fields: [
+        { name: 'old', label: 'Aktuelles Passwort', type: 'password', required: true },
+        { name: 'new', label: 'Neues Passwort (min. 10 Zeichen)', type: 'password', required: true },
+      ] });
+      if (!v) return;
+      if (v.new.length < 10) throw new Error('Neues Passwort ist zu kurz.');
+      await store.changePassword(v.old, v.new); toast('Passwort geändert');
+    });
+    $('#a-bio', el)?.addEventListener('click', guard(async () => {
+      if (bioOn) await passkey.remove(); else await passkey.enroll(store.masterKey(), store.account().email);
+      rerender();
+    }));
+    $('#a-out', el).onclick = guard(async () => {
+      if (await confirmBox('Abmelden', 'Die lokale Kopie wird von diesem Gerät entfernt (die Daten bleiben im Konto). Nicht synchronisierte Änderungen gehen verloren.', 'Abmelden', true)) { await store.wipe(); location.reload(); }
+    });
+    $('#a-del', el).onclick = guard(async () => {
+      if (await confirmBox('Konto löschen', 'Konto und ALLE Daten werden unwiderruflich gelöscht – auch für den Haushalt, falls du das letzte Mitglied bist.', 'Endgültig löschen', true)) { await store.deleteAccount(); location.reload(); }
+    });
+    $('#h-create', el)?.addEventListener('click', guard(async () => { await store.createHousehold(); toast('Haushalt erstellt'); rerender(); }));
+    $('#h-join', el)?.addEventListener('click', guard(async () => {
+      const code = $('#h-codein', el).value.trim();
+      if (!code) return;
+      await store.joinHousehold(code); toast('Haushalt beigetreten'); rerender();
+    }));
+    $('#h-invite', el)?.addEventListener('click', guard(async () => {
+      const code = await store.createInvite();
+      $('#h-code', el).innerHTML = `<p class="muted small" style="margin-top:.8rem">Einmalig gültig, 7 Tage. Sicher weitergeben (z. B. persönlich oder per Signal):</p><div class="codebox">${esc(code)}</div>`;
+    }));
+    $('#h-leave', el)?.addEventListener('click', guard(async () => {
+      if (await confirmBox('Haushalt verlassen', 'Du verlierst den Zugriff auf neue gemeinsame Einträge. Eine Kopie der bisher gemeinsamen Einträge bleibt bei dir als privater Bestand.', 'Verlassen', true)) { await store.leaveHousehold(); rerender(); }
+    }));
+  }
 
   $('#x-export', el).onclick = () => download(`Budget_${today()}.xlsx`, excel.exportData(db()), XLSX_MIME);
   $('#x-template', el).onclick = () => download('Budget_Vorlage.xlsx', excel.exportTemplate(), XLSX_MIME);
@@ -127,6 +188,11 @@ export async function render(el, { lock, rerender, applyName }) {
     const f = e.target.files[0]; e.target.value = '';
     if (!f) return;
     const text = await f.text();
+    if (store.isCloud) {
+      if (!(await confirmBox('Backup wiederherstellen', 'Die Daten im Backup überschreiben gleiche Einträge; nicht enthaltene Einträge werden gelöscht.', 'Wiederherstellen', true))) return;
+      try { await store.restoreBackup(text); toast('Backup wiederhergestellt'); rerender(); } catch (err) { toast(err.message); }
+      return;
+    }
     const d = openDialog(`<form method="dialog" class="form"><h2>Backup wiederherstellen</h2>
       <p>Ersetzt <b>alle aktuellen Daten</b>. Passwort des Backups eingeben (danach gilt dieses Passwort).</p>
       <label class="field"><span>Passwort</span><input type="password" name="pw" required autocomplete="off"></label>

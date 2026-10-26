@@ -1,5 +1,16 @@
 [
   {
+    "version": "0.3.0",
+    "date": "2026-10-26",
+    "items": [
+      "Konto-Login mit E-Mail und Passwort (Ende-zu-Ende-verschlüsselt, Synchronisation über mehrere Geräte)",
+      "Haushalte: Partner/Familie per Einladungscode verknüpfen, Einträge optional als «Gemeinsam» markieren",
+      "Biometrische Entsperrung (Face ID / Fingerabdruck / Windows Hello), wo vom Gerät unterstützt",
+      "Wiederherstellungscode und Passwort-Reset",
+      "Excel: neue Spalte «Gemeinsam»"
+    ]
+  },
+  {
     "version": "0.2.0",
     "date": "2026-10-26",
     "items": ["App-Name in den Einstellungen änderbar", "Börsenliste für Aktien erweitert"]

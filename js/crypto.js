@@ -31,3 +31,31 @@ export async function decrypt(key, { iv, ct }) {
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(iv) }, key, fromB64(ct));
   return JSON.parse(dec.decode(pt));
 }
+
+// ---------- Schlüsselhierarchie für den Cloud-Modus ----------
+// Passwort -> (a) Login-Geheimnis für Supabase (Server sieht nie das echte Passwort)
+//          -> (b) Schlüssel zum Entpacken des Hauptschlüssels (MK). MK verschlüsselt alle Daten.
+export async function deriveLoginSecret(password, email, iterations = 600_000) {
+  const material = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: enc.encode(`umfassendes-budget:login:${email.trim().toLowerCase()}`), iterations, hash: 'SHA-256' },
+    material, 256);
+  return toB64(new Uint8Array(bits));
+}
+
+export const generateKey = () => crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+export const importKey = raw => crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+export const exportKey = async k => new Uint8Array(await crypto.subtle.exportKey('raw', k));
+export const wrapKey = async (kek, key) => encrypt(kek, toB64(await exportKey(key)));
+export const unwrapKey = async (kek, wrapped) => importKey(fromB64(await decrypt(kek, wrapped)));
+
+export const sha256b64 = async str => toB64(new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(str))));
+
+const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ohne 0/O/1/I
+export function randomCode(bytes = 20) {
+  const r = randomBytes(bytes);
+  let s = '';
+  for (const b of r) s += ALPHA[b % 32];
+  return s.match(/.{1,4}/g).join('-');
+}
+export const normalizeCode = c => c.toUpperCase().replace(/[^A-Z0-9]/g, '');

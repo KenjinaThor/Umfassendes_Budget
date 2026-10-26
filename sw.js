@@ -3,7 +3,7 @@
 const CACHE = 'budget-__BUILD__';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'changelog.json', 'css/app.css',
-  'vendor/chart.umd.js', 'vendor/xlsx.full.min.js',
+  'vendor/chart.umd.js', 'vendor/xlsx.full.min.js', 'vendor/supabase.js', 'js/config.js', 'js/passkey.js',
   'js/app.js', 'js/util.js', 'js/crypto.js', 'js/store.js', 'js/fx.js', 'js/market.js',
   'js/calc.js', 'js/plausibility.js', 'js/excel.js', 'js/ui.js', 'js/update.js',
   'js/dashboard.js', 'js/view-tx.js', 'js/view-assets.js', 'js/view-settings.js',

@@ -1,5 +1,5 @@
 // Reiter «Einnahmen» und «Ausgaben» (identische Logik, unterschiedliche Liste).
-import { db, save } from './store.js';
+import { db, save, hasHousehold } from './store.js';
 import * as calc from './calc.js';
 import * as fx from './fx.js';
 import { $, esc, chf, fmt, uid, today, dispDate } from './util.js';
@@ -24,11 +24,13 @@ async function edit(kind, t) {
       { name: 'amount', label: 'Betrag', type: 'number', step: '0.01', required: true },
       { name: 'currency', label: 'Währung', type: 'select', options: fx.CURRENCIES.map(c => [c, c]) },
       { name: 'account', label: 'Konto (optional)' },
+      ...(hasHousehold() ? [{ name: 'shared', label: 'Gemeinsam mit Haushalt', type: 'checkbox' }] : []),
     ],
   });
   if (!v) return false;
   const rec = { ...(t || { id: uid() }), date: v.date, category: v.category.trim(), description: v.description.trim(), amount: Math.abs(+v.amount), currency: v.currency, account: v.account.trim() };
   delete rec.rate;
+  if (v.shared) rec.shared = true; else delete rec.shared;
   if (rec.currency !== 'CHF') {
     try { rec.rate = await fx.rateAt(rec.currency, rec.date); } catch { toast('Wechselkurs nicht abrufbar – es wird der letzte bekannte Kurs verwendet.'); }
   }
@@ -57,7 +59,7 @@ export function render(el, kind) {
     </div>
     ${missingFx ? '<div class="banner">Für einige Fremdwährungen fehlt der Wechselkurs – Summe unvollständig.</div>' : ''}
     <div class="card tablewrap"><table><thead><tr><th>Datum</th><th>Kategorie</th><th>Beschreibung</th><th>Konto</th><th class="num">Betrag</th><th class="num">CHF</th><th></th></tr></thead><tbody>
-    ${rows.slice(0, s.shown).map(t => `<tr><td>${dispDate(t.date)}</td><td>${esc(t.category)}</td><td>${esc(t.description)}</td><td>${esc(t.account)}</td>
+    ${rows.slice(0, s.shown).map(t => `<tr><td>${dispDate(t.date)}</td><td>${esc(t.category)}${t.shared ? '<span class="badge">Haushalt</span>' : ''}</td><td>${esc(t.description)}</td><td>${esc(t.account)}</td>
       <td class="num">${t.currency !== 'CHF' ? `${t.currency} ${fmt(t.amount)}` : ''}</td><td class="num">${chf(calc.txChf(t))}</td>
       <td class="num nowrap"><button class="icon" data-act="edit" data-id="${t.id}" aria-label="Bearbeiten">✎</button><button class="icon" data-act="del" data-id="${t.id}" aria-label="Löschen">✕</button></td></tr>`).join('')
       || '<tr><td colspan="7" class="muted">Keine Buchungen im gewählten Zeitraum.</td></tr>'}

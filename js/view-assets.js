@@ -1,5 +1,5 @@
 // Reiter «Vermögen»: Konten, Aktien/ETFs, Edelmetalle mit Einstandspreis und Gewinn/Verlust.
-import { db, save } from './store.js';
+import { db, save, hasHousehold } from './store.js';
 import * as calc from './calc.js';
 import * as fx from './fx.js';
 import { refreshQuotes } from './market.js';
@@ -24,6 +24,7 @@ async function edit(a) {
       { name: 'costPrice', label: 'Einstandspreis je Einheit', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'] },
       { name: 'costFx', label: 'Wechselkurs bei Kauf → CHF (optional)', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall'], hint: 'CHF je 1 Fremdwährung beim Kauf. Leer = heutiger Kurs.' },
       { name: 'manualPrice', label: 'Aktueller Kurs (manuell)', type: 'number', step: 'any', only: ['andere'] },
+      ...(hasHousehold() ? [{ name: 'shared', label: 'Gemeinsam mit Haushalt', type: 'checkbox' }] : []),
     ],
   });
   if (!v) return false;
@@ -33,6 +34,7 @@ async function edit(a) {
     exchange: (v.exchange || '').trim().toUpperCase(), qty: +v.qty, unit: v.unit || '', currency: v.currency,
     costPrice: num(v.costPrice), costFx: num(v.costFx) || undefined, manualPrice: num(v.manualPrice),
   };
+  if (v.shared) rec.shared = true; else delete rec.shared;
   if (a && (a.symbol !== rec.symbol || a.exchange !== rec.exchange)) { delete rec.quote; delete rec.prevClose; }
   const list = db().assets, i = list.findIndex(x => x.id === rec.id);
   if (i >= 0) list[i] = rec; else list.push(rec);
@@ -65,7 +67,7 @@ export function render(el) {
   const row = r => {
     const a = r.a, foreign = a.currency !== 'CHF' || (r.priceCur && r.priceCur !== 'CHF');
     return `<tr>
-      <td><b>${esc(a.name)}</b><div class="muted small">${esc(a.symbol || '')}${a.exchange ? ` · ${esc(a.exchange)}` : ''}</div></td>
+      <td><b>${esc(a.name)}</b>${a.shared ? '<span class="badge">Haushalt</span>' : ''}<div class="muted small">${esc(a.symbol || '')}${a.exchange ? ` · ${esc(a.exchange)}` : ''}</div></td>
       <td class="num">${fmt(r.qty, a.type === 'konto' ? 2 : 4)}${a.type === 'edelmetall' ? ` ${a.unit}` : ''}</td>
       <td class="num">${INV.includes(a.type) || a.type === 'andere' ? (a.costPrice === '' ? '–' : `${a.currency} ${fmt(+a.costPrice)}`) : ''}</td>
       <td class="num">${LIQ.includes(a.type) ? '' : price(r)}</td>

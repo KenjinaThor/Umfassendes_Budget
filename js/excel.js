@@ -3,9 +3,10 @@ import { CURRENCIES } from './fx.js';
 import { TYPE_LABELS } from './calc.js';
 import { METAL_SYMBOLS } from './market.js';
 import { uid } from './util.js';
+import { hasHousehold } from './store.js';
 
-const TX_COLS = ['Datum', 'Kategorie', 'Beschreibung', 'Betrag', 'Währung', 'Konto'];
-const AS_COLS = ['Typ', 'Name', 'Symbol', 'Börse', 'Menge', 'Einheit', 'Einstandspreis', 'Währung', 'Wechselkurs bei Kauf', 'Manueller Kurs'];
+const TX_COLS = ['Datum', 'Kategorie', 'Beschreibung', 'Betrag', 'Währung', 'Konto', 'Gemeinsam'];
+const AS_COLS = ['Typ', 'Name', 'Symbol', 'Börse', 'Menge', 'Einheit', 'Einstandspreis', 'Währung', 'Wechselkurs bei Kauf', 'Manueller Kurs', 'Gemeinsam'];
 const TYPE_BY_LABEL = Object.fromEntries(
   Object.entries(TYPE_LABELS).flatMap(([k, v]) => [[v.toLowerCase(), k], [k, k]]).concat([['etf', 'etf'], ['fonds', 'etf']])
 );
@@ -32,6 +33,7 @@ function help() {
     ['    Einstandspreis je Einheit.'],
     ['  Wechselkurs bei Kauf (optional): CHF je 1 Einheit Fremdwährung zum Kaufzeitpunkt – für exakten Gewinn/Verlust in CHF.'],
     ['  Andere: «Manueller Kurs» = aktueller Wert je Einheit.'],
+    ['Spalte «Gemeinsam»: «ja» = mit dem Haushalt teilen (nur wirksam, wenn du einem Haushalt angehörst).'],
     ['Nach dem Import wird automatisch eine Plausibilitätsprüfung durchgeführt.'],
     [''],
     ['Gültige Währungen:'],
@@ -45,15 +47,15 @@ function help() {
 }
 
 function workbook(d) {
-  const tx = l => l.map(t => [t.date, t.category, t.description || '', t.amount, t.currency, t.account || '']);
+  const tx = l => l.map(t => [t.date, t.category, t.description || '', t.amount, t.currency, t.account || '', t.shared ? 'ja' : '']);
   const as = l => l.map(a => [
     TYPE_LABELS[a.type], a.name, a.symbol || '', a.exchange || '', a.qty, a.unit || '',
-    a.costPrice ?? '', a.currency, a.costFx ?? '', a.manualPrice ?? '',
+    a.costPrice ?? '', a.currency, a.costFx ?? '', a.manualPrice ?? '', a.shared ? 'ja' : '',
   ]);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.income), [12, 20, 36, 12, 9, 18]), 'Einnahmen');
-  XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.expense), [12, 20, 36, 12, 9, 18]), 'Ausgaben');
-  XLSX.utils.book_append_sheet(wb, sheet(AS_COLS, as(d.assets), [12, 28, 12, 10, 12, 8, 15, 9, 20, 14]), 'Vermögen');
+  XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.income), [12, 20, 36, 12, 9, 18, 11]), 'Einnahmen');
+  XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.expense), [12, 20, 36, 12, 9, 18, 11]), 'Ausgaben');
+  XLSX.utils.book_append_sheet(wb, sheet(AS_COLS, as(d.assets), [12, 28, 12, 10, 12, 8, 15, 9, 20, 14, 11]), 'Vermögen');
   XLSX.utils.book_append_sheet(wb, help(), 'Anleitung');
   return wb;
 }
@@ -65,6 +67,7 @@ export const exportTemplate = () => toBytes(workbook({ income: [], expense: [], 
 // ---------- Import ----------
 const norm = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k.toString().trim().toLowerCase(), v]));
 const str = v => (v == null ? '' : String(v).trim());
+const isYes = v => /^(ja|j|1|x|true|yes)$/i.test(str(v));
 const pad = n => String(n).padStart(2, '0');
 
 function parseDate(v) {
@@ -108,7 +111,7 @@ function parseTx(rows) {
     return {
       id: uid(), _row: i + 2, _errors: errors, _negated: negated, _noCategory: !str(r.kategorie),
       date, category: str(r.kategorie) || 'Unkategorisiert', description: str(r.beschreibung),
-      amount, currency, account: str(r.konto),
+      amount, currency, account: str(r.konto), ...(isYes(r.gemeinsam) && hasHousehold() ? { shared: true } : {}),
     };
   }).filter(r => !(r.date === null && Number.isNaN(r.amount) && !r.description && r._noCategory)); // Leerzeilen
 }
@@ -136,7 +139,7 @@ function parseAssets(rows) {
     return {
       id: uid(), _row: i + 2, _errors: errors, type, name, symbol, exchange: str(r['börse']).toUpperCase(),
       qty, unit, currency, costPrice: opt(r.einstandspreis), costFx: opt(r['wechselkurs bei kauf']) || undefined,
-      manualPrice: opt(r['manueller kurs']),
+      manualPrice: opt(r['manueller kurs']), ...(isYes(r.gemeinsam) && hasHousehold() ? { shared: true } : {}),
     };
   }).filter(r => r.name || r._errors.length > 1);
 }
