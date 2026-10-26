@@ -17,7 +17,7 @@ async function edit(a) {
       { name: 'type', label: 'Typ', type: 'select', options: Object.entries(calc.TYPE_LABELS) },
       { name: 'name', label: 'Name', required: true },
       { name: 'symbol', label: 'Symbol', only: ['aktie', 'etf', 'edelmetall'], list: ['XAU', 'XAG', 'XPT', 'XPD'], hint: 'Aktie/ETF z. B. NESN, AAPL · Metall: XAU Gold, XAG Silber, XPT Platin, XPD Palladium' },
-      { name: 'exchange', label: 'Börse (optional)', only: ['aktie', 'etf'], hint: 'z. B. SIX, NASDAQ, XETR' },
+      { name: 'exchange', label: 'Börse (optional)', only: ['aktie', 'etf'], list: ['SIX', 'XETR', 'NYSE', 'NASDAQ', 'LSE', 'XPAR', 'TSX', 'HKEX', 'SSE', 'SZSE', 'NSE', 'TSE'], hint: 'Börsenkürzel wie bei Twelve Data; Freitext möglich' },
       { name: 'qty', label: 'Menge / Kontostand', type: 'number', step: 'any', required: true },
       { name: 'unit', label: 'Einheit', type: 'select', only: ['edelmetall'], options: [['oz', 'Feinunze (oz)'], ['g', 'Gramm'], ['kg', 'Kilogramm']] },
       { name: 'currency', label: 'Währung (Konto / Einstandspreis)', type: 'select', options: fx.CURRENCIES.map(c => [c, c]) },

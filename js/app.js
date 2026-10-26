@@ -8,6 +8,8 @@ import { $, esc } from './util.js';
 import { toast } from './ui.js';
 
 const app = $('#app');
+const getName = () => { try { return localStorage.getItem('app-name') || 'Umfassendes Budget'; } catch { return 'Umfassendes Budget'; } };
+export function applyName(n) { try { localStorage.setItem('app-name', n); } catch { /* ignorieren */ } document.title = n; const b = document.querySelector('.brand span'); if (b) b.textContent = n; }
 const ICONS = {
   dashboard: '<path d="M3 13h8V3H3zm0 8h8v-6H3zm10 0h8V11h-8zm0-18v6h8V3z"/>',
   income: '<path d="M12 4v12m0 0l-5-5m5 5l5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -24,7 +26,7 @@ async function showLock() {
   const exists = await store.hasVault();
   app.innerHTML = `<main class="lock"><form id="lockf" class="card">
     <img src="icons/icon.svg" alt="" width="64" height="64">
-    <h1>Umfassendes Budget</h1>
+    <h1>${esc(getName())}</h1>
     <p class="muted">${exists ? 'Passwort eingeben, um die Daten zu entschlüsseln.' : 'Passwort festlegen. Die Daten werden damit auf diesem Gerät verschlüsselt. <b>Es gibt keine Wiederherstellung bei vergessenem Passwort.</b>'}</p>
     <label class="field"><span>Passwort</span><input type="password" name="pw" required minlength="${exists ? 1 : 10}" autocomplete="${exists ? 'current-password' : 'new-password'}" autofocus></label>
     ${exists ? '' : '<label class="field"><span>Passwort wiederholen</span><input type="password" name="pw2" required autocomplete="new-password"><small>Mindestens 10 Zeichen, am besten ein Satz.</small></label>'}
@@ -68,14 +70,14 @@ function route() {
     income: () => tx.render(view, 'income'),
     expense: () => tx.render(view, 'expense'),
     assets: () => assets.render(view),
-    settings: () => settings.render(view, { lock, rerender }),
+    settings: () => settings.render(view, { lock, rerender, applyName }),
   })[key]();
   scrollTo(0, 0);
 }
 
 async function start() {
   app.innerHTML = `<div class="shell">
-    <nav aria-label="Hauptnavigation"><div class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"><span>Budget</span></div>
+    <nav aria-label="Hauptnavigation"><div class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"><span>${esc(getName())}</span></div>
       ${ROUTES.map(([k, l]) => `<a href="#/${k}" data-r="${k}"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">${ICONS[k]}</svg><span>${esc(l)}</span></a>`).join('')}
       <button class="navlock" id="navlock">🔒 Sperren</button></nav>
     <main id="view"></main></div>`;
@@ -92,5 +94,6 @@ async function start() {
 }
 
 addEventListener('hashchange', () => { if (store.isUnlocked()) route(); });
+document.title = getName();
 registerSW();
 showLock();

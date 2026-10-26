@@ -28,6 +28,7 @@ const put = (k, v) => idb('readwrite', s => s.put(v, k));
 export const defaultData = () => ({
   version: 1,
   settings: {
+    appName: 'Umfassendes Budget',
     baseCurrency: 'CHF',
     twelveDataKey: '',
     autoLockMin: 5,

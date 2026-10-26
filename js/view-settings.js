@@ -73,11 +73,14 @@ function demo() {
 }
 
 // ---------- Ansicht ----------
-export async function render(el, { lock, rerender }) {
+export async function render(el, { lock, rerender, applyName }) {
   const s = db().settings;
   const ver = await currentVersion();
   el.innerHTML = `
     <div class="pagehead"><h1>Einstellungen</h1></div>
+
+    <section class="card"><h2>Allgemein</h2>
+      <label class="field"><span>App-Name</span><input id="s-name" maxlength="40" value="${esc(s.appName || 'Umfassendes Budget')}"></label></section>
 
     <section class="card"><h2>Excel</h2>
       <p class="muted">Export enthält alle Daten im gleichen Format wie die Vorlage – so ist ein Re-Import möglich.</p>
@@ -112,6 +115,7 @@ export async function render(el, { lock, rerender }) {
   $('#x-template', el).onclick = () => download('Budget_Vorlage.xlsx', excel.exportTemplate(), XLSX_MIME);
   $('#x-import', el).onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f, rerender); };
 
+  $('#s-name', el).onchange = async e => { s.appName = e.target.value.trim() || 'Umfassendes Budget'; applyName(s.appName); await save(); toast('Gespeichert'); };
   $('#s-key', el).onchange = async e => { s.twelveDataKey = e.target.value.trim(); await save(); toast('Gespeichert'); };
   $('#s-lock', el).onchange = async e => { s.autoLockMin = +e.target.value; await save(); };
   $('#b-lock', el).onclick = lock;
