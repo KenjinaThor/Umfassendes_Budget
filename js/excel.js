@@ -2,7 +2,8 @@
 import { CURRENCIES } from './fx.js';
 import { TYPE_LABELS } from './calc.js';
 import { METAL_SYMBOLS } from './market.js';
-import { uid } from './util.js';
+import { uid, today } from './util.js';
+import { isSalary } from './recurring.js';
 import { hasHousehold } from './store.js';
 import { INCOME_GROUPS, EXPENSE_GROUPS, SAVINGS_GROUPS, canonical, isKnown } from './categories.js';
 
@@ -27,6 +28,9 @@ function help() {
     ['Blatt «Einnahmen» / «Ausgaben»: je Zeile eine Buchung.'],
     ['  Datum: TT.MM.JJJJ oder JJJJ-MM-TT.  Betrag: positive Zahl.  Währung: siehe unten (leer = CHF).'],
     ['  Kategorie: Position aus dem Blatt «Budgetplan» (z. B. «Miete inkl. Nebenkosten (Heizung, Wasser)»); eigene Kategorien sind erlaubt.'],
+    ['Blatt «Wiederkehrend»: Art (Einnahme/Ausgabe), Betrag je Zahlung, Start, optional Ende, Intervall 1–12 Monate.'],
+    ['  «13. Monatslohn» = ja (nur Kategorien mit «Lohn», Intervall 1): Betrag wird × 13/12 gebucht.'],
+    ['  «Anpassungen»: Erhöhungen ab Stichtag als «JJJJ-MM-TT:Betrag; JJJJ-MM-TT:Betrag» (Lohn-/Prämienerhöhung).'],
     ['Blatt «Budgetplan»: Spalte «Betrag monatlich (CHF)» ausfüllen = geplanter Monatsbetrag je Position (Soll). Leer = kein Budget.'],
     ['Blatt «Vermögen»: je Zeile eine Position.'],
     ['  Typ: Konto, Aktie, ETF, Edelmetall oder Andere.'],
@@ -58,6 +62,12 @@ function budgetRows(budget = {}) {
   return rows;
 }
 
+const REC_COLS = ['Art', 'Kategorie', 'Beschreibung', 'Betrag', 'Währung', 'Konto', 'Start', 'Ende', 'Intervall (Monate)', '13. Monatslohn', 'Gemeinsam', 'Anpassungen'];
+const recRows = (list = []) => list.map(r => [
+  r.kind === 'income' ? 'Einnahme' : 'Ausgabe', r.category, r.description || '', r.amounts[0].amount, r.currency, r.account || '', r.start, r.end || '',
+  r.interval, r.thirteenth ? 'ja' : '', r.shared ? 'ja' : '', r.amounts.slice(1).map(c => `${c.from}:${c.amount}`).join('; '),
+]);
+
 function workbook(d) {
   const tx = l => l.map(t => [t.date, t.category, t.description || '', t.amount, t.currency, t.account || '', t.shared ? 'ja' : '']);
   const as = l => l.map(a => [
@@ -69,12 +79,14 @@ function workbook(d) {
   XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.expense), [12, 20, 36, 12, 9, 18, 11]), 'Ausgaben');
   XLSX.utils.book_append_sheet(wb, sheet(AS_COLS, as(d.assets), [12, 28, 12, 10, 12, 8, 15, 9, 20, 14, 11]), 'Vermögen');
   XLSX.utils.book_append_sheet(wb, sheet(BUDGET_COLS, budgetRows(d.budget), [12, 38, 52, 22, 40]), 'Budgetplan');
+  XLSX.utils.book_append_sheet(wb, sheet(REC_COLS, recRows(d.recurring), [10, 34, 30, 12, 9, 16, 12, 12, 18, 14, 11, 40]), 'Wiederkehrend');
   XLSX.utils.book_append_sheet(wb, help(), 'Anleitung');
   return wb;
 }
 
 const toBytes = wb => XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-export const exportData = d => toBytes(workbook({ ...d, budget: d.settings?.budget }));
+// Automatisch erzeugte Buchungen werden nicht exportiert; sie entstehen beim Import aus «Wiederkehrend» neu.
+export const exportData = d => toBytes(workbook({ ...d, income: d.income.filter(t => !t.recId), expense: d.expense.filter(t => !t.recId), budget: d.settings?.budget }));
 export const exportTemplate = () => toBytes(workbook({ income: [], expense: [], assets: [] }));
 
 // ---------- Import ----------
@@ -157,6 +169,38 @@ function parseAssets(rows) {
   }).filter(r => r.name || r._errors.length > 1);
 }
 
+function parseRecurring(rows) {
+  const out = [];
+  rows.forEach((raw, i) => {
+    const r = norm(raw), errors = [];
+    if (!str(r.art) && !str(r.kategorie) && str(r.betrag) === '') return;
+    const art = str(r.art).toLowerCase();
+    const kind = art.startsWith('einn') ? 'income' : art.startsWith('ausg') ? 'expense' : null;
+    if (!kind) errors.push(`Art muss «Einnahme» oder «Ausgabe» sein («${str(r.art)}»)`);
+    const start = parseDate(r.start); if (!start) errors.push(`Ungültiges Startdatum «${str(r.start)}»`);
+    const end = str(r.ende) === '' ? '' : parseDate(r.ende); if (end === null) errors.push(`Ungültiges Enddatum «${str(r.ende)}»`);
+    if (start && end && end < start) errors.push('Ende liegt vor dem Start');
+    const amount = parseNum(r.betrag); if (Number.isNaN(amount) || amount < 0) errors.push(`Ungültiger Betrag «${str(r.betrag)}»`);
+    const interval = parseNum(r['intervall (monate)']); if (!Number.isInteger(interval) || interval < 1 || interval > 12) errors.push('Intervall muss 1–12 Monate sein');
+    const currency = str(r['währung']).toUpperCase() || 'CHF'; if (!CURRENCIES.includes(currency)) errors.push(`Unbekannte Währung «${currency}»`);
+    if (!str(r.kategorie)) errors.push('Kategorie fehlt');
+    const changes = [];
+    for (const part of str(r.anpassungen).split(';').map(s => s.trim()).filter(Boolean)) {
+      const [dt, amt] = part.split(':'), d = parseDate(dt), a = parseNum(amt);
+      if (!d || Number.isNaN(a) || a < 0) errors.push(`Ungültige Anpassung «${part}» (Format JJJJ-MM-TT:Betrag)`); else changes.push({ from: d, amount: a });
+    }
+    const category = canonical(str(r.kategorie));
+    const interv = errors.length ? 1 : interval;
+    out.push({
+      _row: i + 2, _errors: errors, id: uid(), kind, category, description: str(r.beschreibung), currency, account: str(r.konto),
+      interval: interv, start, end: end || '', thirteenth: isYes(r['13. monatslohn']) && isSalary(kind, category) && interv === 1,
+      amounts: [{ from: start, amount }, ...changes.filter(c => c.from > start).sort((a, b) => a.from.localeCompare(b.from))], skip: [],
+      ...(isYes(r.gemeinsam) && hasHousehold() ? { shared: true } : {}),
+    });
+  });
+  return out;
+}
+
 function parseBudget(rows) {
   const out = [];
   rows.forEach((raw, i) => {
@@ -174,6 +218,6 @@ export function parse(buffer) {
     return ws ? XLSX.utils.sheet_to_json(ws, { defval: '', raw: true }) : null;
   };
   const inc = get('Einnahmen'), exp = get('Ausgaben'), ass = get('Vermögen');
-  if (!inc && !exp && !ass && !get('Budgetplan')) throw new Error('Keine Blätter «Einnahmen», «Ausgaben» oder «Vermögen» gefunden');
-  return { income: parseTx(inc || []), expense: parseTx(exp || []), assets: parseAssets(ass || []), budget: parseBudget(get('Budgetplan') || []) };
+  if (!inc && !exp && !ass && !get('Budgetplan') && !get('Wiederkehrend')) throw new Error('Keine Blätter «Einnahmen», «Ausgaben» oder «Vermögen» gefunden');
+  return { income: parseTx(inc || []), expense: parseTx(exp || []), assets: parseAssets(ass || []), budget: parseBudget(get('Budgetplan') || []), recurring: parseRecurring(get('Wiederkehrend') || []) };
 }

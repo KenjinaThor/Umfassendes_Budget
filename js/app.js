@@ -8,6 +8,7 @@ import { registerSW, showWhatsNew } from './update.js';
 import { $, esc } from './util.js';
 import { toast, confirmBox } from './ui.js';
 import * as passkey from './passkey.js';
+import * as recurring from './recurring.js';
 
 const app = $('#app');
 const getName = () => { try { return localStorage.getItem('app-name') || 'Umfassendes Budget'; } catch { return 'Umfassendes Budget'; } };
@@ -169,6 +170,7 @@ function route() {
 }
 
 async function start({ password } = {}) {
+  if (recurring.materialize()) store.save().catch(() => {});
   app.innerHTML = `<div class="shell">
     <nav aria-label="Hauptnavigation"><div class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"><span>${esc(getName())}</span></div>
       ${ROUTES.map(([k, l]) => `<a href="#/${k}" data-r="${k}"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true">${ICONS[k]}</svg><span>${esc(l)}</span></a>`).join('')}
@@ -201,8 +203,8 @@ function wireSync(password) {
 let wired = false;
 function globalSync() {
   if (wired) return; wired = true;
-  store.onRemoteChange(() => { if (store.isUnlocked() && !$('#dlg').open && !document.activeElement?.matches?.('input,select,textarea')) route(); });
-  const go = () => { if (store.isUnlocked() && !document.hidden) store.sync().then(() => {}); };
+  store.onRemoteChange(() => { if (recurring.materialize()) store.save().catch(() => {}); if (store.isUnlocked() && !$('#dlg').open && !document.activeElement?.matches?.('input,select,textarea')) route(); });
+  const go = () => { if (store.isUnlocked() && !document.hidden) { if (recurring.materialize()) store.save().catch(() => {}); store.sync().then(() => {}); } };
   addEventListener('online', go);
   document.addEventListener('visibilitychange', go);
   setInterval(go, 60_000);

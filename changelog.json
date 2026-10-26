@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.5.0",
+    "date": "2026-10-26",
+    "items": [
+      "Wiederkehrende Einnahmen und Ausgaben: Rhythmus jeden Monat bis alle 12 Monate, optional mit Enddatum",
+      "13. Monatslohn: Lohn wird anteilig auf 12 Monate verteilt (Betrag × 13/12)",
+      "Anpassung per Stichtag (±): Lohnerhöhung, Prämienerhöhung in Betrag oder Prozent",
+      "Excel: neues Blatt «Wiederkehrend» für Export, Vorlage und Import"
+    ]
+  },
+  {
     "version": "0.4.0",
     "date": "2026-10-26",
     "items": [

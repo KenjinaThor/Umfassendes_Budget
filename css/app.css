@@ -107,3 +107,6 @@ ul.issues { padding-left: 1.1rem; margin: 0; max-height: 34vh; overflow: auto; }
 .budget tr.big td { font-size: 1.05rem; }
 .budget input.soll { width: 7.5rem; text-align: right; min-height: 34px; padding: .25rem .5rem; }
 @media (max-width: 820px) { nav a { font-size: .62rem; padding: .4rem .2rem; } }
+
+details.recur > summary { cursor: pointer; padding: .2rem 0 .6rem; list-style: none; } details.recur > summary::-webkit-details-marker { display: none; }
+details.recur { padding-bottom: .4rem; }

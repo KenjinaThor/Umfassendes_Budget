@@ -8,7 +8,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 export const isCloud = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 const ITERATIONS = 600_000;
 const DB_NAME = 'umfassendes-budget';
-const LISTS = ['income', 'expense', 'assets'];
+const LISTS = ['income', 'expense', 'assets', 'recurring'];
 const TRANSIENT = new Set(['quote', 'prevClose']); // Kurse lösen keine Änderungsversion aus
 const TOMBSTONE_TTL = 180 * 864e5;
 
@@ -42,7 +42,7 @@ export const kvDel = k => idb('readwrite', s => s.delete(k));
 export const defaultData = () => ({
   version: 1,
   settings: { appName: 'Umfassendes Budget', baseCurrency: 'CHF', twelveDataKey: '', autoLockMin: 5, lastBackup: null, widgets: null, budget: {} },
-  income: [], expense: [], assets: [], snapshots: [],
+  income: [], expense: [], assets: [], recurring: [], snapshots: [],
   meta: {}, settingsU: 0, settingsH: '',
 });
 const normalize = d => {
@@ -485,7 +485,7 @@ export async function leaveHousehold() {
 // ---------- Backup (beide Modi) ----------
 export async function backupFile() {
   if (isCloud) {
-    const payload = { income: data.income, expense: data.expense, assets: data.assets, settings: data.settings, snapshots: data.snapshots };
+    const payload = { income: data.income, expense: data.expense, assets: data.assets, recurring: data.recurring, settings: data.settings, snapshots: data.snapshots };
     return JSON.stringify({ v: 2, cloud: true, ...(await C.encrypt(st.mk, payload)) });
   }
   await save();

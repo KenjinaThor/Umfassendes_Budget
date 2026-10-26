@@ -80,6 +80,7 @@ export function check(rows, existing) {
     }
   }
 
+  for (const r of rows.recurring || []) for (const e of r._errors) add('Wiederkehrend', r, 'error', e);
   for (const r of rows.budget || []) for (const e of r._errors) add('Budgetplan', r, 'error', e);
 
   for (const r of rows.assets) {

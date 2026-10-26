@@ -31,7 +31,7 @@ function fieldHtml(f, v) {
   const val = v ?? f.value ?? '';
   const only = f.only ? ` data-only="${f.only.join(' ')}"` : '';
   const req = f.required ? ' required' : '';
-  if (f.type === 'checkbox') return `<label class="field check"${only}><input type="checkbox" name="${f.name}" value="1"${v ? ' checked' : ''}><span>${esc(f.label)}</span></label>`;
+  if (f.type === 'checkbox') return `<label class="field check" data-f="${f.name}"${only}><input type="checkbox" name="${f.name}" value="1"${v ? ' checked' : ''}><span>${esc(f.label)}</span></label>`;
   let input;
   if (f.type === 'select' && f.groups) {
     input = `<select name="${f.name}"${req}>${f.groups.map(([label, opts]) => `<optgroup label="${esc(label)}">${opts.map(o => `<option value="${esc(o)}"${o === val ? ' selected' : ''}>${esc(o)}</option>`).join('')}</optgroup>`).join('')}</select>`;
@@ -42,7 +42,7 @@ function fieldHtml(f, v) {
     input = `<input name="${f.name}" type="${f.type || 'text'}" value="${esc(val)}"${req}${list}${f.step ? ` step="${f.step}"` : ''} autocomplete="off">`;
     if (f.list) input += `<datalist id="dl-${f.name}">${f.list.map(o => `<option value="${esc(o)}">`).join('')}</datalist>`;
   }
-  return `<label class="field"${only}><span>${esc(f.label)}</span>${input}${f.hint ? `<small>${esc(f.hint)}</small>` : ''}</label>`;
+  return `<label class="field" data-f="${f.name}"${only}><span>${esc(f.label)}</span>${input}${f.hint ? `<small>${esc(f.hint)}</small>` : ''}</label>`;
 }
 
 /** Formular-Dialog. Felder mit `only: [typ,…]` erscheinen nur, wenn das Feld «type» passt. Gibt Werte oder null zurück. */
@@ -61,8 +61,20 @@ export function formDialog({ title, fields, values = {}, submit = 'Speichern', e
         el.querySelectorAll('input,select').forEach(i => { i.disabled = !show; });
       }
     };
-    typeSel?.addEventListener('change', apply);
-    apply();
+    const whens = fields.filter(f => f.when);
+    const applyWhen = () => {
+      const vals = Object.fromEntries(new FormData(form));
+      for (const f of whens) {
+        const el = form.querySelector(`[data-f="${f.name}"]`);
+        const show = !!f.when(vals) && !(el.dataset.only && typeSel && !el.dataset.only.split(' ').includes(typeSel.value));
+        el.hidden = !show;
+        el.querySelectorAll('input,select').forEach(i => { i.disabled = !show; });
+      }
+    };
+    typeSel?.addEventListener('change', () => { apply(); applyWhen(); });
+    form.addEventListener('input', applyWhen);
+    form.addEventListener('change', applyWhen);
+    apply(); applyWhen(); applyWhen();
     form.addEventListener('submit', e => {
       if (e.submitter?.value === 'ok') res(Object.fromEntries(new FormData(form)));
     });

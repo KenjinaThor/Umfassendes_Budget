@@ -8,6 +8,7 @@ import { $, esc, download, today, dispDate, uid, fmtDate } from './util.js';
 import { openDialog, closeDialog, confirmBox, toast, formDialog } from './ui.js';
 import { currentVersion, showWhatsNew } from './update.js';
 import * as passkey from './passkey.js';
+import * as recurring from './recurring.js';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -25,7 +26,7 @@ async function importFile(file, onDone) {
 
   const dupCount = ['income', 'expense'].reduce((n, k) => n + rows[k].filter(r => r._dup && !r._errors.length).length, 0);
   const d = openDialog(`<div class="form"><h2>Import prüfen</h2>
-    <p>Gefunden: <b>${count('income')}</b> Einnahmen, <b>${count('expense')}</b> Ausgaben, <b>${count('assets')}</b> Vermögenspositionen und <b>${(rows.budget || []).filter(b => !b._errors.length).length}</b> Budgetbeträge gültig.
+    <p>Gefunden: <b>${count('income')}</b> Einnahmen, <b>${count('expense')}</b> Ausgaben, <b>${count('assets')}</b> Vermögenspositionen und <b>${(rows.budget || []).filter(b => !b._errors.length).length}</b> Budgetbeträge und <b>${(rows.recurring || []).filter(b => !b._errors.length).length}</b> wiederkehrende Einträge gültig.
     ${errs.length ? `<br><span class="neg">${errs.length} fehlerhafte Zeilen werden nie importiert.</span>` : ''}</p>
     ${!issues.length ? '<p class="pos">✓ Keine Auffälligkeiten gefunden.</p>' : ''}
     ${sect('Fehler', errs, 'neg')}${sect('Auffälligkeiten', warns, 'warnc')}${sect('Hinweise', infos, 'muted')}
@@ -49,6 +50,13 @@ async function importFile(file, onDone) {
       const ex = dbx.assets.find(a => a.type === o.type && a.name.toLowerCase() === o.name.toLowerCase() && (a.symbol || '') === o.symbol);
       if (ex) Object.assign(ex, { ...o, id: ex.id, quote: ex.quote, prevClose: ex.prevClose }); else dbx.assets.push(o);
     }
+    dbx.recurring ||= [];
+    for (const r of (rows.recurring || []).filter(keep)) {
+      const o = clean(r);
+      const ex = dbx.recurring.find(x => x.kind === o.kind && x.category === o.category && x.description === o.description && x.start === o.start);
+      if (ex) Object.assign(ex, { ...o, id: ex.id, skip: ex.skip }); else dbx.recurring.push(o);
+    }
+    recurring.materialize();
     const bp = (dbx.settings.budget ||= {});
     for (const b of (rows.budget || []).filter(b => !b._errors.length)) { if (b.amount > 0) bp[b.name] = b.amount; else delete bp[b.name]; }
     await save(); closeDialog(); toast('Import abgeschlossen'); onDone();
