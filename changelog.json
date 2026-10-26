@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "date": "2026-10-26",
+    "items": [
+      "Erste Version: Dashboard, Einnahmen, Ausgaben und Vermögen",
+      "Verschlüsselte lokale Datenspeicherung (Passwort erforderlich)",
+      "Excel-Export, Excel-Import und leere Vorlage",
+      "Plausibilitätsprüfung beim Import",
+      "Tagesaktuelle Wechselkurse und Börsenkurse (Twelve Data, Schlüssel nötig)"
+    ]
+  }
+]
