@@ -2,9 +2,16 @@
 // 13. Monatslohn. Aus jeder Regel werden die fälligen Buchungen automatisch erzeugt (feste IDs, daher geräteübergreifend eindeutig).
 import { db } from './store.js';
 import { today, fmtDate } from './util.js';
+import * as fx from './fx.js';
+import { txChf, inRange } from './calc.js';
+import { isSavings, groupOf } from './categories.js';
 
-export const INTERVAL_OPTIONS = [['0', 'Einmalig'], ['1', 'Jeden Monat'], ...Array.from({ length: 11 }, (_, i) => [String(i + 2), `Alle ${i + 2} Monate`])];
-export const intervalLabel = n => (n === 1 ? 'monatlich' : `alle ${n} Monate`);
+export const INTERVAL_OPTIONS = [
+  ['0', 'Einmalig'], ['1', 'Jeden Monat'], ...Array.from({ length: 10 }, (_, i) => [String(i + 2), `Alle ${i + 2} Monate`]),
+  ['12', 'Jährlich'], ['24', 'Alle 2 Jahre'], ['36', 'Alle 3 Jahre'], ['60', 'Alle 5 Jahre'],
+];
+export const MAX_INTERVAL = 60;
+export const intervalLabel = n => (n === 1 ? 'monatlich' : n === 12 ? 'jährlich' : n % 12 === 0 ? `alle ${n / 12} Jahre` : `alle ${n} Monate`);
 export const isSalary = (kind, category) => kind === 'income' && /lohn/i.test(category || '');
 const round2 = n => Math.round(n * 100) / 100;
 
@@ -103,4 +110,38 @@ export function deleteRule(rule, withEntries) {
     if (withEntries) d[kind] = d[kind].filter(t => t.recId !== rule.id);
     else for (const t of d[kind]) if (t.recId === rule.id) { delete t.recId; delete t.manual; }
   }
+}
+
+/** Mehrjahresplanung: laufendes Jahr = Ist-Buchungen + noch fällige Planbuchungen, Folgejahre = Planung aus wiederkehrenden Einträgen
+ *  (inkl. Stichtag-Anpassungen) und zukünftig datierten Einzelbuchungen. Alle Beträge in CHF. */
+export function projection(nYears, now = today()) {
+  const d = db(), y0 = +now.slice(0, 4);
+  let missingFx = false;
+  const out = [];
+  for (let i = 0; i < nYears; i++) {
+    const Y = y0 + i, span = [`${Y}-01-01`, `${Y}-12-31`];
+    const y = { year: Y, income: 0, expense: 0, savings: 0, groups: { income: new Map(), expense: new Map() } };
+    const add = (kind, category, chf) => {
+      const sav = kind === 'expense' && isSavings(category);
+      if (sav) y.savings += chf; else y[kind] += chf;
+      const bucket = sav ? 'Vorsorge & Vermögensaufbau' : groupOf(category);
+      const m = y.groups[kind];
+      m.set(bucket, (m.get(bucket) || 0) + chf);
+    };
+    for (const kind of ['income', 'expense']) for (const t of d[kind]) if (inRange(t, span)) add(kind, t.category, txChf(t));
+    for (const rule of d.recurring || []) {
+      const rate = fx.latest(rule.currency);
+      if (rate == null) missingFx = true;
+      for (const date of occurrences(rule, span[1])) {
+        if (date < span[0] || date <= now || rule.skip?.includes(date)) continue;
+        add(rule.kind, rule.category, effectiveAt(rule, date) * (rate ?? 0));
+      }
+    }
+    y.free = y.income - y.expense;
+    y.rest = y.free - y.savings;
+    out.push(y);
+  }
+  let cum = 0;
+  for (const y of out) { cum += y.rest; y.cum = cum; }
+  return { years: out, missingFx };
 }

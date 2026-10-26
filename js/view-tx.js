@@ -30,12 +30,12 @@ async function edit(kind, t) {
       { name: 'currency', label: 'Währung', type: 'select', options: fx.CURRENCIES.map(c => [c, c]) },
       { name: 'account', label: 'Konto (optional)' },
       ...(hasHousehold() ? [{ name: 'shared', label: 'Gemeinsam mit Haushalt', type: 'checkbox' }] : []),
-      ...(t ? [] : RV.repeatFields(kind)),
+      ...(t?.recId ? [] : RV.repeatFields(kind)),
     ],
   });
   if (!v) return false;
-  if (!t && v.repeat && v.repeat !== '0') {
-    try { await RV.createFromForm(kind, v); toast('Wiederkehrender Eintrag erstellt'); return true; } catch (err) { toast(err.message); return false; }
+  if (!t?.recId && v.repeat && v.repeat !== '0') {
+    try { await RV.createFromForm(kind, v, t); toast(t ? 'Buchung in wiederkehrenden Eintrag umgewandelt' : 'Wiederkehrender Eintrag erstellt'); return true; } catch (err) { toast(err.message); return false; }
   }
   const rec = { ...(t || { id: uid() }), date: v.date, category: (v.custom || '').trim() || v.category, description: v.description.trim(), amount: Math.abs(+v.amount), currency: v.currency, account: v.account.trim() };
   delete rec.rate;

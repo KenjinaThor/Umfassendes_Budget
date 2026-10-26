@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.6.0",
+    "date": "2026-10-26",
+    "items": [
+      "Bereits erfasste Einnahmen/Ausgaben können nachträglich in einen wiederkehrenden Eintrag umgewandelt werden (Bearbeiten → Wiederholung)",
+      "Neue Rhythmen: jährlich, alle 2, 3 oder 5 Jahre",
+      "Neuer Reiter «Planung»: Mehrjahresplanung (3–20 Jahre) mit Diagramm und Aufschlüsselung nach Gruppe"
+    ]
+  },
+  {
     "version": "0.5.0",
     "date": "2026-10-26",
     "items": [

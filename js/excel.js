@@ -28,7 +28,7 @@ function help() {
     ['Blatt «Einnahmen» / «Ausgaben»: je Zeile eine Buchung.'],
     ['  Datum: TT.MM.JJJJ oder JJJJ-MM-TT.  Betrag: positive Zahl.  Währung: siehe unten (leer = CHF).'],
     ['  Kategorie: Position aus dem Blatt «Budgetplan» (z. B. «Miete inkl. Nebenkosten (Heizung, Wasser)»); eigene Kategorien sind erlaubt.'],
-    ['Blatt «Wiederkehrend»: Art (Einnahme/Ausgabe), Betrag je Zahlung, Start, optional Ende, Intervall 1–12 Monate.'],
+    ['Blatt «Wiederkehrend»: Art (Einnahme/Ausgabe), Betrag je Zahlung, Start, optional Ende, Intervall in Monaten (1–60; 12 = jährlich, 24 = alle 2 Jahre).'],
     ['  «13. Monatslohn» = ja (nur Kategorien mit «Lohn», Intervall 1): Betrag wird × 13/12 gebucht.'],
     ['  «Anpassungen»: Erhöhungen ab Stichtag als «JJJJ-MM-TT:Betrag; JJJJ-MM-TT:Betrag» (Lohn-/Prämienerhöhung).'],
     ['Blatt «Budgetplan»: Spalte «Betrag monatlich (CHF)» ausfüllen = geplanter Monatsbetrag je Position (Soll). Leer = kein Budget.'],
@@ -181,7 +181,7 @@ function parseRecurring(rows) {
     const end = str(r.ende) === '' ? '' : parseDate(r.ende); if (end === null) errors.push(`Ungültiges Enddatum «${str(r.ende)}»`);
     if (start && end && end < start) errors.push('Ende liegt vor dem Start');
     const amount = parseNum(r.betrag); if (Number.isNaN(amount) || amount < 0) errors.push(`Ungültiger Betrag «${str(r.betrag)}»`);
-    const interval = parseNum(r['intervall (monate)']); if (!Number.isInteger(interval) || interval < 1 || interval > 12) errors.push('Intervall muss 1–12 Monate sein');
+    const interval = parseNum(r['intervall (monate)']); if (!Number.isInteger(interval) || interval < 1 || interval > 60) errors.push('Intervall muss 1–60 Monate sein (12 = jährlich)');
     const currency = str(r['währung']).toUpperCase() || 'CHF'; if (!CURRENCIES.includes(currency)) errors.push(`Unbekannte Währung «${currency}»`);
     if (!str(r.kategorie)) errors.push('Kategorie fehlt');
     const changes = [];

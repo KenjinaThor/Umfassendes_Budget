@@ -21,13 +21,14 @@ export const repeatFields = kind => [
   }] : []),
 ];
 
-export async function createFromForm(kind, v) {
+export async function createFromForm(kind, v, original) {
   const rule = R.newRule(kind, {
     category: (v.custom || '').trim() || v.category, description: v.description.trim(), amount: Math.abs(+v.amount), currency: v.currency,
     account: v.account.trim(), interval: +v.repeat, start: v.date, end: v.until || '', thirteenth: !!v.thirteenth, shared: !!v.shared,
   });
   if (rule.end && rule.end < rule.start) throw new Error('«Wiederholen bis» liegt vor dem Startdatum.');
   db().recurring.push(rule);
+  if (original) db()[kind] = db()[kind].filter(t => t.id !== original.id); // wird als erste Fälligkeit neu erzeugt
   R.materialize();
   await save();
 }
@@ -89,7 +90,7 @@ async function editRule(rule) {
       { name: 'amount', label: 'Betrag (ab Startdatum)', type: 'number', step: '0.01', required: true },
       { name: 'currency', label: 'Währung', type: 'select', options: CURRENCIES.map(c => [c, c]) },
       { name: 'account', label: 'Konto (optional)' },
-      { name: 'interval', label: 'Rhythmus', type: 'select', options: R.INTERVAL_OPTIONS.slice(1) },
+      { name: 'interval', label: 'Rhythmus', type: 'select', options: R.INTERVAL_OPTIONS.slice(1).some(o => o[0] === String(rule.interval)) ? R.INTERVAL_OPTIONS.slice(1) : [...R.INTERVAL_OPTIONS.slice(1), [String(rule.interval), R.intervalLabel(rule.interval)]] },
       { name: 'start', label: 'Startdatum', type: 'date', required: true },
       { name: 'until', label: 'Ende (optional)', type: 'date' },
       ...(kind === 'income' ? [{ name: 'thirteenth', label: '13. Monatslohn (Betrag × 13/12)', type: 'checkbox', when: x => x.interval === '1' && R.isSalary('income', (x.custom || '').trim() || x.category) }] : []),
