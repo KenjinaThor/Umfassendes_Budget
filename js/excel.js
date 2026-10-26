@@ -31,6 +31,7 @@ function help() {
     ['Blatt «Wiederkehrend»: Art (Einnahme/Ausgabe), Betrag je Zahlung, Start, optional Ende, Intervall in Monaten (1–60; 12 = jährlich, 24 = alle 2 Jahre).'],
     ['  «13. Monatslohn» = ja (nur Kategorien mit «Lohn», Intervall 1): Betrag wird × 13/12 gebucht.'],
     ['  «Anpassungen»: Erhöhungen ab Stichtag als «JJJJ-MM-TT:Betrag; JJJJ-MM-TT:Betrag» (Lohn-/Prämienerhöhung).'],
+    ['  «Automatisch buchen» = ja: der Sollbetrag wird ab «Ab Monat» (JJJJ-MM) jeden Monat automatisch als Buchung übernommen; manuell erfasste Buchungen in dieser Kategorie ersetzen den Automatik-Betrag des Monats.'],
     ['Blatt «Budgetplan»: Spalte «Betrag monatlich (CHF)» ausfüllen = geplanter Monatsbetrag je Position (Soll). Leer = kein Budget.'],
     ['Blatt «Vermögen»: je Zeile eine Position.'],
     ['  Typ: Konto, Aktie, ETF, Edelmetall oder Andere.'],
@@ -53,12 +54,14 @@ function help() {
   return ws;
 }
 
-const BUDGET_COLS = ['Bereich', 'Gruppe', 'Position', 'Betrag monatlich (CHF)', 'Hinweis'];
-function budgetRows(budget = {}) {
+const BUDGET_COLS = ['Bereich', 'Gruppe', 'Position', 'Betrag monatlich (CHF)', 'Hinweis', 'Automatisch buchen', 'Ab Monat'];
+function budgetRows(settings = {}) {
+  const budget = settings.budget || {}, auto = settings.budgetAuto || {};
   const rows = [];
-  const add = (bereich, groups) => groups.forEach(g => g.positions.forEach(p => rows.push([bereich, g.name, p.name, budget[p.name] ?? '', p.hint || ''])));
+  const row = (bereich, group, name, hint) => [bereich, group, name, budget[name] ?? '', hint || '', auto[name] ? 'ja' : '', auto[name]?.from || ''];
+  const add = (bereich, groups) => groups.forEach(g => g.positions.forEach(p => rows.push(row(bereich, g.name, p.name, p.hint))));
   add('Einnahmen', INCOME_GROUPS); add('Ausgaben', EXPENSE_GROUPS); add('Vorsorge', SAVINGS_GROUPS);
-  for (const [name, v] of Object.entries(budget)) if (!isKnown(name)) rows.push(['Ausgaben', 'Weitere Positionen', name, v, '']);
+  for (const name of new Set([...Object.keys(budget), ...Object.keys(auto)])) if (!isKnown(name)) rows.push(row('Ausgaben', 'Weitere Positionen', name, ''));
   return rows;
 }
 
@@ -78,7 +81,7 @@ function workbook(d) {
   XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.income), [12, 20, 36, 12, 9, 18, 11]), 'Einnahmen');
   XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.expense), [12, 20, 36, 12, 9, 18, 11]), 'Ausgaben');
   XLSX.utils.book_append_sheet(wb, sheet(AS_COLS, as(d.assets), [12, 28, 12, 10, 12, 8, 15, 9, 20, 14, 11]), 'Vermögen');
-  XLSX.utils.book_append_sheet(wb, sheet(BUDGET_COLS, budgetRows(d.budget), [12, 38, 52, 22, 40]), 'Budgetplan');
+  XLSX.utils.book_append_sheet(wb, sheet(BUDGET_COLS, budgetRows(d.settings), [12, 38, 52, 22, 40, 18, 12]), 'Budgetplan');
   XLSX.utils.book_append_sheet(wb, sheet(REC_COLS, recRows(d.recurring), [10, 34, 30, 12, 9, 16, 12, 12, 18, 14, 11, 40]), 'Wiederkehrend');
   XLSX.utils.book_append_sheet(wb, help(), 'Anleitung');
   return wb;
@@ -86,7 +89,7 @@ function workbook(d) {
 
 const toBytes = wb => XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
 // Automatisch erzeugte Buchungen werden nicht exportiert; sie entstehen beim Import aus «Wiederkehrend» neu.
-export const exportData = d => toBytes(workbook({ ...d, income: d.income.filter(t => !t.recId), expense: d.expense.filter(t => !t.recId), budget: d.settings?.budget }));
+export const exportData = d => toBytes(workbook({ ...d, income: d.income.filter(t => !t.recId && !(t.auto && !t.manual)), expense: d.expense.filter(t => !t.recId && !(t.auto && !t.manual)), settings: d.settings }));
 export const exportTemplate = () => toBytes(workbook({ income: [], expense: [], assets: [] }));
 
 // ---------- Import ----------
@@ -203,10 +206,15 @@ function parseRecurring(rows) {
 
 function parseBudget(rows) {
   const out = [];
+  const hasAuto = rows.some(r => Object.keys(r).some(k => k.trim().toLowerCase() === 'automatisch buchen'));
   rows.forEach((raw, i) => {
     const r = norm(raw), name = canonical(str(r.position)), v = parseNum(r['betrag monatlich (chf)']);
     if (!name || str(r['betrag monatlich (chf)']) === '') return;
-    out.push({ _row: i + 2, name, amount: v, _errors: Number.isNaN(v) || v < 0 ? [`Ungültiger Budgetbetrag «${str(r['betrag monatlich (chf)'])}»`] : [] });
+    const errors = Number.isNaN(v) || v < 0 ? [`Ungültiger Budgetbetrag «${str(r['betrag monatlich (chf)'])}»`] : [];
+    const fromRaw = str(r['ab monat']);
+    let from = /^\d{4}-\d{2}$/.test(fromRaw) ? fromRaw : (parseDate(r['ab monat'])?.slice(0, 7) || '');
+    if (isYes(r['automatisch buchen']) && fromRaw && !from) errors.push(`Ungültiger Monat «${fromRaw}» (Format JJJJ-MM)`);
+    out.push({ _row: i + 2, name, amount: v, _errors: errors, auto: hasAuto ? isYes(r['automatisch buchen']) : undefined, from: from || today().slice(0, 7), kind: str(r.bereich).toLowerCase().startsWith('einn') ? 'income' : 'expense' });
   });
   return out;
 }

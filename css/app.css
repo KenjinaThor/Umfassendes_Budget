@@ -110,3 +110,5 @@ ul.issues { padding-left: 1.1rem; margin: 0; max-height: 34vh; overflow: auto; }
 
 details.recur > summary { cursor: pointer; padding: .2rem 0 .6rem; list-style: none; } details.recur > summary::-webkit-details-marker { display: none; }
 details.recur { padding-bottom: .4rem; }
+input[type=checkbox] { width: 1.15rem; height: 1.15rem; min-height: 0; padding: 0; accent-color: var(--accent); }
+.budget td.auto label { display: flex; align-items: center; gap: .4rem; }

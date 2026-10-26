@@ -41,7 +41,7 @@ export const kvDel = k => idb('readwrite', s => s.delete(k));
 // ---------- Datenmodell ----------
 export const defaultData = () => ({
   version: 1,
-  settings: { appName: 'Umfassendes Budget', baseCurrency: 'CHF', twelveDataKey: '', autoLockMin: 5, lastBackup: null, widgets: null, budget: {} },
+  settings: { appName: 'Umfassendes Budget', baseCurrency: 'CHF', twelveDataKey: '', autoLockMin: 5, lastBackup: null, widgets: null, budget: {}, budgetHist: {}, budgetAuto: {}, budgetSkip: [] },
   income: [], expense: [], assets: [], recurring: [], snapshots: [],
   meta: {}, settingsU: 0, settingsH: '',
 });

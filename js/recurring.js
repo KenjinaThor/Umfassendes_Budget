@@ -4,7 +4,8 @@ import { db } from './store.js';
 import { today, fmtDate } from './util.js';
 import * as fx from './fx.js';
 import { txChf, inRange } from './calc.js';
-import { isSavings, groupOf } from './categories.js';
+import { isSavings, groupOf, lookup, canonical } from './categories.js';
+import { sollAt, monthsBetween, monthOf } from './budget.js';
 
 export const INTERVAL_OPTIONS = [
   ['0', 'Einmalig'], ['1', 'Jeden Monat'], ...Array.from({ length: 10 }, (_, i) => [String(i + 2), `Alle ${i + 2} Monate`]),
@@ -75,6 +76,35 @@ export function materialize(now = today()) {
     const keep = d[kind].filter(t => !(t.recId && rules.has(t.recId) && !t.manual && !valid.has(t.id)));
     if (keep.length !== d[kind].length) { d[kind] = keep; changed = true; }
   }
+  if (materializeBudget(now)) changed = true;
+  return changed;
+}
+
+/** «Automatisch buchen» im Budgetplan: Sollbetrag je Monat als Buchung, ausser es wurde manuell etwas erfasst. */
+function materializeBudget(now) {
+  const d = db(), s = d.settings, auto = s.budgetAuto || {}, skip = new Set(s.budgetSkip || []);
+  const nowMonth = monthOf(now);
+  let changed = false;
+  const isAutoTx = t => t.auto === 'budget' && !t.manual;
+  const present = new Set();
+  for (const kind of ['income', 'expense']) for (const t of d[kind]) if (!isAutoTx(t)) present.add(`${kind}|${canonical(t.category)}|${monthOf(t.date)}`);
+  const valid = new Set();
+  for (const [name, cfg] of Object.entries(auto)) {
+    const kind = lookup(name)?.kind ?? cfg.kind ?? 'expense';
+    const byId = new Map(d[kind].filter(t => t.auto === 'budget').map(t => [t.id, t]));
+    for (const m of monthsBetween(cfg.from, nowMonth)) {
+      const id = `b:${name}:${m}`, amt = sollAt(name, m);
+      if (skip.has(`${name}|${m}`) || amt <= 0 || present.has(`${kind}|${name}|${m}`)) continue;
+      valid.add(id);
+      const t = byId.get(id);
+      if (!t) { d[kind].push({ id, auto: 'budget', date: `${m}-01`, category: name, description: 'Budget (automatisch)', amount: amt, currency: 'CHF', account: '' }); changed = true; }
+      else if (t.amount !== amt || t.category !== name) { t.amount = amt; t.category = name; changed = true; }
+    }
+  }
+  for (const kind of ['income', 'expense']) {
+    const keep = d[kind].filter(t => !isAutoTx(t) || valid.has(t.id));
+    if (keep.length !== d[kind].length) { d[kind] = keep; changed = true; }
+  }
   return changed;
 }
 
@@ -135,6 +165,17 @@ export function projection(nYears, now = today()) {
       for (const date of occurrences(rule, span[1])) {
         if (date < span[0] || date <= now || rule.skip?.includes(date)) continue;
         add(rule.kind, rule.category, effectiveAt(rule, date) * (rate ?? 0));
+      }
+    }
+    // Automatisch gebuchte Budgetpositionen für noch nicht angebrochene Monate
+    const auto = d.settings.budgetAuto || {}, skip = new Set(d.settings.budgetSkip || []);
+    for (const [name, cfg] of Object.entries(auto)) {
+      const kind = lookup(name)?.kind ?? cfg.kind ?? 'expense';
+      for (const m of monthsBetween(`${Y}-01`, `${Y}-12`)) {
+        if (m < cfg.from || `${m}-01` <= now || skip.has(`${name}|${m}`)) continue;
+        const amt = sollAt(name, m);
+        const manual = d[kind].some(t => canonical(t.category) === name && monthOf(t.date) === m);
+        if (amt > 0 && !manual) add(kind, name, amt);
       }
     }
     y.free = y.income - y.expense;

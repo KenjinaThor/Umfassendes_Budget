@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.7.0",
+    "date": "2026-10-26",
+    "items": [
+      "Budgetplan: Spalte «Auto» – der Sollbetrag wird automatisch als Ausgabe/Einnahme gebucht, nur Besonderes muss manuell erfasst werden",
+      "Manuell erfasste Buchungen einer Kategorie ersetzen den automatischen Betrag dieses Monats",
+      "Sollbeträge gelten ab dem gewählten Monat (frühere Monate bleiben unverändert)",
+      "Excel: Budgetplan-Blatt mit Spalten «Automatisch buchen» und «Ab Monat»; Mehrjahresplanung berücksichtigt automatische Budgetbuchungen"
+    ]
+  },
+  {
     "version": "0.6.0",
     "date": "2026-10-26",
     "items": [

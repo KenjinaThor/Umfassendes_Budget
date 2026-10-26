@@ -9,6 +9,7 @@ import { openDialog, closeDialog, confirmBox, toast, formDialog } from './ui.js'
 import { currentVersion, showWhatsNew } from './update.js';
 import * as passkey from './passkey.js';
 import * as recurring from './recurring.js';
+import * as budgetLib from './budget.js';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -56,9 +57,12 @@ async function importFile(file, onDone) {
       const ex = dbx.recurring.find(x => x.kind === o.kind && x.category === o.category && x.description === o.description && x.start === o.start);
       if (ex) Object.assign(ex, { ...o, id: ex.id, skip: ex.skip }); else dbx.recurring.push(o);
     }
-    recurring.materialize();
     const bp = (dbx.settings.budget ||= {});
-    for (const b of (rows.budget || []).filter(b => !b._errors.length)) { if (b.amount > 0) bp[b.name] = b.amount; else delete bp[b.name]; }
+    for (const b of (rows.budget || []).filter(b => !b._errors.length)) {
+      budgetLib.setSollFlat(b.name, b.amount);
+      if (b.auto === true && b.amount > 0) budgetLib.setAuto(b.name, true, b.from, b.kind); else if (b.auto === false) budgetLib.setAuto(b.name, false);
+    }
+    recurring.materialize();
     await save(); closeDialog(); toast('Import abgeschlossen'); onDone();
   };
   $('#i-cancel', d).onclick = closeDialog;
