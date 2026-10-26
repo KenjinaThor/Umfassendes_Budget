@@ -2,6 +2,7 @@ import * as store from './store.js';
 import * as dashboard from './dashboard.js';
 import * as tx from './view-tx.js';
 import * as assets from './view-assets.js';
+import * as budget from './view-budget.js';
 import * as settings from './view-settings.js';
 import { registerSW, showWhatsNew } from './update.js';
 import { $, esc } from './util.js';
@@ -15,11 +16,12 @@ const ICONS = {
   dashboard: '<path d="M3 13h8V3H3zm0 8h8v-6H3zm10 0h8V11h-8zm0-18v6h8V3z"/>',
   income: '<path d="M12 4v12m0 0l-5-5m5 5l5-5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
   expense: '<path d="M12 20V8m0 0l-5 5m5-5l5 5M5 4h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  budget: '<path d="M4 5h16M4 12h10M4 19h16M17 10l3 2-3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
   assets: '<path d="M3 17l6-6 4 4 8-8M15 7h6v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
   settings: '<path d="M12 8a4 4 0 100 8 4 4 0 000-8zm8.4 5.5l1.6 1.2-2 3.4-1.9-.6a7 7 0 01-1.7 1l-.4 2h-4l-.4-2a7 7 0 01-1.7-1l-1.9.6-2-3.4 1.6-1.2a7 7 0 010-2L2 10.3l2-3.4 1.9.6a7 7 0 011.7-1l.4-2h4l.4 2a7 7 0 011.7 1l1.9-.6 2 3.4-1.6 1.2a7 7 0 010 2z" fill="none" stroke="currentColor" stroke-width="1.6"/>',
 };
 const ROUTES = [
-  ['dashboard', 'Dashboard'], ['income', 'Einnahmen'], ['expense', 'Ausgaben'], ['assets', 'Vermögen'], ['settings', 'Einstellungen'],
+  ['dashboard', 'Dashboard'], ['income', 'Einnahmen'], ['expense', 'Ausgaben'], ['budget', 'Budgetplan'], ['assets', 'Vermögen'], ['settings', 'Einstellungen'],
 ];
 
 // ---------- Anmeldung / Sperrbildschirm ----------
@@ -159,6 +161,7 @@ function route() {
     dashboard: () => dashboard.render(view),
     income: () => tx.render(view, 'income'),
     expense: () => tx.render(view, 'expense'),
+    budget: () => budget.render(view),
     assets: () => assets.render(view),
     settings: () => settings.render(view, { lock, rerender, applyName }),
   })[key]();

@@ -25,7 +25,7 @@ async function importFile(file, onDone) {
 
   const dupCount = ['income', 'expense'].reduce((n, k) => n + rows[k].filter(r => r._dup && !r._errors.length).length, 0);
   const d = openDialog(`<div class="form"><h2>Import prüfen</h2>
-    <p>Gefunden: <b>${count('income')}</b> Einnahmen, <b>${count('expense')}</b> Ausgaben, <b>${count('assets')}</b> Vermögenspositionen gültig.
+    <p>Gefunden: <b>${count('income')}</b> Einnahmen, <b>${count('expense')}</b> Ausgaben, <b>${count('assets')}</b> Vermögenspositionen und <b>${(rows.budget || []).filter(b => !b._errors.length).length}</b> Budgetbeträge gültig.
     ${errs.length ? `<br><span class="neg">${errs.length} fehlerhafte Zeilen werden nie importiert.</span>` : ''}</p>
     ${!issues.length ? '<p class="pos">✓ Keine Auffälligkeiten gefunden.</p>' : ''}
     ${sect('Fehler', errs, 'neg')}${sect('Auffälligkeiten', warns, 'warnc')}${sect('Hinweise', infos, 'muted')}
@@ -49,6 +49,8 @@ async function importFile(file, onDone) {
       const ex = dbx.assets.find(a => a.type === o.type && a.name.toLowerCase() === o.name.toLowerCase() && (a.symbol || '') === o.symbol);
       if (ex) Object.assign(ex, { ...o, id: ex.id, quote: ex.quote, prevClose: ex.prevClose }); else dbx.assets.push(o);
     }
+    const bp = (dbx.settings.budget ||= {});
+    for (const b of (rows.budget || []).filter(b => !b._errors.length)) { if (b.amount > 0) bp[b.name] = b.amount; else delete bp[b.name]; }
     await save(); closeDialog(); toast('Import abgeschlossen'); onDone();
   };
   $('#i-cancel', d).onclick = closeDialog;
@@ -59,11 +61,11 @@ async function importFile(file, onDone) {
 // ---------- Demo-Daten ----------
 function demo() {
   const d = db(), now = new Date();
-  const cats = [['Wohnen', 1800, 1800], ['Krankenkasse', 420, 420], ['Lebensmittel', 450, 700], ['Mobilität', 120, 260], ['Freizeit', 100, 400]];
+  const cats = [['Miete inkl. Nebenkosten (Heizung, Wasser)', 1800, 1800], ['Krankenkasse Grundversicherung (KVG)', 420, 420], ['Lebensmittel & Supermarkt (Migros, Coop, Aldi, Lidl)', 450, 700], ['Treibstoff (Benzin / Diesel / Strom)', 120, 260], ['Kultur, Kino, Events & Hobbys', 100, 400], ['Säule 3a (Gebundene Vorsorge)', 605, 605]];
   for (let m = 5; m >= 0; m--) {
     const dt = day => fmtDate(new Date(now.getFullYear(), now.getMonth() - m, day));
-    d.income.push({ id: uid(), date: dt(25), category: 'Lohn', description: 'Monatslohn', amount: 6200, currency: 'CHF', account: 'Lohnkonto' });
-    cats.forEach(([c, lo, hi], i) => d.expense.push({ id: uid(), date: dt(3 + i * 4), category: c, description: '', amount: Math.round(lo + (hi - lo) * ((m * 37 + i * 17) % 100) / 100), currency: 'CHF', account: 'Lohnkonto' }));
+    d.income.push({ id: uid(), date: dt(25), category: 'Nettolohn Haupterwerb (inkl. 13. Monatslohn / 12)', description: 'Monatslohn', amount: 6200, currency: 'CHF', account: 'Lohnkonto' });
+    cats.forEach(([c, lo, hi], i) => d.expense.push({ id: uid(), date: dt(2 + i * 4), category: c, description: '', amount: Math.round(lo + (hi - lo) * ((m * 37 + i * 17) % 100) / 100), currency: 'CHF', account: 'Lohnkonto' }));
   }
   d.assets.push(
     { id: uid(), type: 'konto', name: 'Lohnkonto', qty: 8400, currency: 'CHF', costPrice: '' },

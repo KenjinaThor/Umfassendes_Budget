@@ -28,25 +28,32 @@ export const WIDGETS = {
     kpi: () => { const p = calc.portfolio(); return { main: `${arrow(p.day)} ${chf(p.day)}`, sub: 'Seit Vortagesschluss', tone: tone(p.day) }; },
   },
   'kpi-cashflow': {
-    label: 'Sparbetrag (Einnahmen – Ausgaben)', period: true,
+    label: 'Freies Einkommen (Einnahmen – Ausgaben)', period: true,
     kpi: w => {
       const r = calc.range(w.period), pr = calc.prevRange(w.period);
-      const i = calc.totalIn(db().income, r), e = calc.totalIn(db().expense, r);
-      const prev = pr ? calc.totalIn(db().income, pr) - calc.totalIn(db().expense, pr) : null;
+      const i = calc.totalIn(db().income, r), e = calc.totalIn(calc.opex(), r);
+      const prev = pr ? calc.totalIn(db().income, pr) - calc.totalIn(calc.opex(), pr) : null;
       return { main: chf(i - e), sub: `${P[w.period]} · ${cmpText(i - e, prev)}`.replace(/ · $/, ''), tone: tone(i - e) };
+    },
+  },
+  'kpi-vorsorge': {
+    label: 'Vorsorge & Sparen (Säule 3a etc.)', period: true,
+    kpi: w => {
+      const r = calc.range(w.period), v = calc.totalIn(calc.savingsTx(), r), i = calc.totalIn(db().income, r);
+      return { main: chf(v), sub: `${P[w.period]}${i > 0 ? ` · ${pct((v / i) * 100).replace('+', '')} der Einnahmen` : ''}` };
     },
   },
   'kpi-savings-rate': {
     label: 'Sparquote', period: true,
     kpi: w => {
       const r = calc.range(w.period);
-      const i = calc.totalIn(db().income, r), e = calc.totalIn(db().expense, r);
+      const i = calc.totalIn(db().income, r), e = calc.totalIn(calc.opex(), r);
       return { main: i > 0 ? pct(((i - e) / i) * 100).replace('+', '') : '–', sub: `${P[w.period]} · Einnahmen ${chf(i)}` };
     },
   },
   'chart-cashflow': { label: 'Einnahmen vs. Ausgaben (12 Monate)', chart: 'bar', wide: true },
-  'chart-expense-cat': { label: 'Ausgaben nach Kategorie', chart: 'doughnut', period: true },
-  'chart-income-cat': { label: 'Einnahmen nach Kategorie', chart: 'doughnut', period: true },
+  'chart-expense-cat': { label: 'Ausgaben nach Hauptkategorie', chart: 'doughnut', period: true },
+  'chart-income-cat': { label: 'Einnahmen nach Position', chart: 'doughnut', period: true },
   'chart-allocation': { label: 'Vermögensverteilung', chart: 'doughnut' },
   'chart-pnl': { label: 'Gewinn/Verlust je Position', chart: 'hbar' },
   'chart-networth': { label: 'Vermögensentwicklung', chart: 'line', wide: true },
@@ -87,8 +94,7 @@ function chartCfg(w) {
     }
     case 'chart-expense-cat':
     case 'chart-income-cat': {
-      const list = w.type === 'chart-expense-cat' ? db().expense : db().income;
-      const cats = calc.byCategory(list, calc.range(w.period));
+      const cats = w.type === 'chart-expense-cat' ? calc.byGroup(calc.opex(), calc.range(w.period)) : calc.byCategory(db().income, calc.range(w.period));
       return { type: 'doughnut', data: { labels: cats.map(c => c[0]), datasets: [{ data: cats.map(c => c[1]), backgroundColor: PALETTE, borderColor: cssVar('--surface') }] },
         options: { ...base, plugins: { ...base.plugins, tooltip } } };
     }
@@ -122,10 +128,11 @@ function tableHtml(w) {
       const t = tone(goodUp ? d : -d);
       return `<tr><td>${label}</td><td class="num">${chf(a)}</td><td class="num">${chf(b)}</td><td class="num ${t}">${arrow(goodUp ? d : -d)} ${signed(d)}</td></tr>`;
     };
-    const sav = (calc.totalIn(db().income, r) - calc.totalIn(db().expense, r));
-    const savP = (calc.totalIn(db().income, pr) - calc.totalIn(db().expense, pr));
+    const sav = (calc.totalIn(db().income, r) - calc.totalIn(calc.opex(), r));
+    const savP = (calc.totalIn(db().income, pr) - calc.totalIn(calc.opex(), pr));
     return `<div class="tablewrap"><table><thead><tr><th></th><th class="num">${P[w.period]}</th><th class="num">Vorperiode</th><th class="num">Δ CHF</th></tr></thead><tbody>
-      ${row('Einnahmen', db().income, true)}${row('Ausgaben', db().expense, false)}
+      ${row('Einnahmen', db().income, true)}${row('Ausgaben', calc.opex(), false)}
+      ${row('Vorsorge & Sparen', calc.savingsTx(), true)}
       <tr><td><b>Saldo</b></td><td class="num"><b>${chf(sav)}</b></td><td class="num">${chf(savP)}</td><td class="num ${tone(sav - savP)}">${arrow(sav - savP)} ${signed(sav - savP)}</td></tr></tbody></table></div>`;
   }
   const rows = calc.portfolio().rows.filter(r => r.valueChf != null).sort((a, b) => (b.pnlChf ?? -Infinity) - (a.pnlChf ?? -Infinity));

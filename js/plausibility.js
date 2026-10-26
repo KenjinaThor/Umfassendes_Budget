@@ -2,6 +2,7 @@
 import { CURRENCIES } from './fx.js';
 import * as fx from './fx.js';
 import { txChf } from './calc.js';
+import { isKnown } from './categories.js';
 import { median, monthKey, today, fmt } from './util.js';
 
 const dupKey = t => [t.date, (+t.amount).toFixed(2), t.currency, (t.description || '').toLowerCase().trim()].join('|');
@@ -25,6 +26,7 @@ export function check(rows, existing) {
       if (r.date < `${new Date().getFullYear() - 10}-01-01`) add(sheet, r, 'warn', `Datum ${r.date} liegt über 10 Jahre zurück`);
       if (r._negated) add(sheet, r, 'warn', 'Negativer Betrag – wird als positiver Betrag übernommen');
       if (r.amount === 0) add(sheet, r, 'warn', 'Betrag ist 0');
+      if (!r._noCategory && !isKnown(r.category)) add(sheet, r, 'info', `Kategorie «${r.category}» ist nicht im Budgetplan (wird als eigene Kategorie übernommen)`);
       if (r._noCategory) add(sheet, r, 'warn', 'Keine Kategorie – wird als «Unkategorisiert» übernommen');
       const k = dupKey(r);
       if (exKeys.has(k)) { r._dup = true; add(sheet, r, 'warn', 'Duplikat: identische Buchung existiert bereits'); }
@@ -77,6 +79,8 @@ export function check(rows, existing) {
       }
     }
   }
+
+  for (const r of rows.budget || []) for (const e of r._errors) add('Budgetplan', r, 'error', e);
 
   for (const r of rows.assets) {
     for (const e of r._errors) add('Vermögen', r, 'error', e);

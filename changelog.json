@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.4.0",
+    "date": "2026-10-26",
+    "items": [
+      "Neuer Reiter «Budgetplan» nach der Vorlage «Budgetplan Schweiz»: Soll je Position gegen Ist-Buchungen",
+      "Standard-Kategorien (10 Hauptgruppen) aus der Vorlage; Vorsorge & Vermögensaufbau wird getrennt von Ausgaben gerechnet",
+      "Excel-Vorlage und Export enthalten das Blatt «Budgetplan»; Import übernimmt die Sollbeträge",
+      "Dashboard: Ausgaben nach Hauptkategorie, neue Kennzahl Vorsorge & Sparen"
+    ]
+  },
+  {
     "version": "0.3.0",
     "date": "2026-10-26",
     "items": [

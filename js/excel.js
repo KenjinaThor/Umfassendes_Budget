@@ -4,6 +4,7 @@ import { TYPE_LABELS } from './calc.js';
 import { METAL_SYMBOLS } from './market.js';
 import { uid } from './util.js';
 import { hasHousehold } from './store.js';
+import { INCOME_GROUPS, EXPENSE_GROUPS, SAVINGS_GROUPS, canonical, isKnown } from './categories.js';
 
 const TX_COLS = ['Datum', 'Kategorie', 'Beschreibung', 'Betrag', 'Währung', 'Konto', 'Gemeinsam'];
 const AS_COLS = ['Typ', 'Name', 'Symbol', 'Börse', 'Menge', 'Einheit', 'Einstandspreis', 'Währung', 'Wechselkurs bei Kauf', 'Manueller Kurs', 'Gemeinsam'];
@@ -25,6 +26,8 @@ function help() {
     [''],
     ['Blatt «Einnahmen» / «Ausgaben»: je Zeile eine Buchung.'],
     ['  Datum: TT.MM.JJJJ oder JJJJ-MM-TT.  Betrag: positive Zahl.  Währung: siehe unten (leer = CHF).'],
+    ['  Kategorie: Position aus dem Blatt «Budgetplan» (z. B. «Miete inkl. Nebenkosten (Heizung, Wasser)»); eigene Kategorien sind erlaubt.'],
+    ['Blatt «Budgetplan»: Spalte «Betrag monatlich (CHF)» ausfüllen = geplanter Monatsbetrag je Position (Soll). Leer = kein Budget.'],
     ['Blatt «Vermögen»: je Zeile eine Position.'],
     ['  Typ: Konto, Aktie, ETF, Edelmetall oder Andere.'],
     ['  Konto: Menge = Kontostand, Währung = Kontowährung.'],
@@ -46,6 +49,15 @@ function help() {
   return ws;
 }
 
+const BUDGET_COLS = ['Bereich', 'Gruppe', 'Position', 'Betrag monatlich (CHF)', 'Hinweis'];
+function budgetRows(budget = {}) {
+  const rows = [];
+  const add = (bereich, groups) => groups.forEach(g => g.positions.forEach(p => rows.push([bereich, g.name, p.name, budget[p.name] ?? '', p.hint || ''])));
+  add('Einnahmen', INCOME_GROUPS); add('Ausgaben', EXPENSE_GROUPS); add('Vorsorge', SAVINGS_GROUPS);
+  for (const [name, v] of Object.entries(budget)) if (!isKnown(name)) rows.push(['Ausgaben', 'Weitere Positionen', name, v, '']);
+  return rows;
+}
+
 function workbook(d) {
   const tx = l => l.map(t => [t.date, t.category, t.description || '', t.amount, t.currency, t.account || '', t.shared ? 'ja' : '']);
   const as = l => l.map(a => [
@@ -56,12 +68,13 @@ function workbook(d) {
   XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.income), [12, 20, 36, 12, 9, 18, 11]), 'Einnahmen');
   XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.expense), [12, 20, 36, 12, 9, 18, 11]), 'Ausgaben');
   XLSX.utils.book_append_sheet(wb, sheet(AS_COLS, as(d.assets), [12, 28, 12, 10, 12, 8, 15, 9, 20, 14, 11]), 'Vermögen');
+  XLSX.utils.book_append_sheet(wb, sheet(BUDGET_COLS, budgetRows(d.budget), [12, 38, 52, 22, 40]), 'Budgetplan');
   XLSX.utils.book_append_sheet(wb, help(), 'Anleitung');
   return wb;
 }
 
 const toBytes = wb => XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-export const exportData = d => toBytes(workbook(d));
+export const exportData = d => toBytes(workbook({ ...d, budget: d.settings?.budget }));
 export const exportTemplate = () => toBytes(workbook({ income: [], expense: [], assets: [] }));
 
 // ---------- Import ----------
@@ -110,7 +123,7 @@ function parseTx(rows) {
     if (negated) amount = -amount;
     return {
       id: uid(), _row: i + 2, _errors: errors, _negated: negated, _noCategory: !str(r.kategorie),
-      date, category: str(r.kategorie) || 'Unkategorisiert', description: str(r.beschreibung),
+      date, category: canonical(str(r.kategorie)) || 'Unkategorisiert', description: str(r.beschreibung),
       amount, currency, account: str(r.konto), ...(isYes(r.gemeinsam) && hasHousehold() ? { shared: true } : {}),
     };
   }).filter(r => !(r.date === null && Number.isNaN(r.amount) && !r.description && r._noCategory)); // Leerzeilen
@@ -144,6 +157,16 @@ function parseAssets(rows) {
   }).filter(r => r.name || r._errors.length > 1);
 }
 
+function parseBudget(rows) {
+  const out = [];
+  rows.forEach((raw, i) => {
+    const r = norm(raw), name = canonical(str(r.position)), v = parseNum(r['betrag monatlich (chf)']);
+    if (!name || str(r['betrag monatlich (chf)']) === '') return;
+    out.push({ _row: i + 2, name, amount: v, _errors: Number.isNaN(v) || v < 0 ? [`Ungültiger Budgetbetrag «${str(r['betrag monatlich (chf)'])}»`] : [] });
+  });
+  return out;
+}
+
 export function parse(buffer) {
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
   const get = name => {
@@ -151,6 +174,6 @@ export function parse(buffer) {
     return ws ? XLSX.utils.sheet_to_json(ws, { defval: '', raw: true }) : null;
   };
   const inc = get('Einnahmen'), exp = get('Ausgaben'), ass = get('Vermögen');
-  if (!inc && !exp && !ass) throw new Error('Keine Blätter «Einnahmen», «Ausgaben» oder «Vermögen» gefunden');
-  return { income: parseTx(inc || []), expense: parseTx(exp || []), assets: parseAssets(ass || []) };
+  if (!inc && !exp && !ass && !get('Budgetplan')) throw new Error('Keine Blätter «Einnahmen», «Ausgaben» oder «Vermögen» gefunden');
+  return { income: parseTx(inc || []), expense: parseTx(exp || []), assets: parseAssets(ass || []), budget: parseBudget(get('Budgetplan') || []) };
 }

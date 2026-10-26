@@ -3,6 +3,7 @@ import { db } from './store.js';
 import * as fx from './fx.js';
 import { OZ_PER_UNIT } from './market.js';
 import { fmtDate, monthKey, sum } from './util.js';
+import { isSavings, groupOf } from './categories.js';
 
 export const PERIODS = {
   m0: 'Dieser Monat',
@@ -44,6 +45,17 @@ export const txChf = t => t.amount * (t.currency === 'CHF' ? 1 : (t.rate ?? fx.l
 export const inRange = (t, [from, to]) => t.date >= from && t.date <= to;
 export const totalIn = (list, r) => sum(list.filter(t => inRange(t, r)), txChf);
 
+/** Ausgaben ohne Vorsorge/Sparen (wie «TOTAL AUSGABEN» im Budgetplan). */
+export const opex = () => db().expense.filter(t => !isSavings(t.category));
+/** Vorsorge & Vermögensaufbau (Säule 3a, Sparen, Anlagen). */
+export const savingsTx = () => db().expense.filter(t => isSavings(t.category));
+
+export function byGroup(list, r) {
+  const m = new Map();
+  for (const t of list) if (inRange(t, r)) { const g = groupOf(t.category); m.set(g, (m.get(g) || 0) + txChf(t)); }
+  return [...m.entries()].sort((a, b) => b[1] - a[1]);
+}
+
 export function byCategory(list, r) {
   const m = new Map();
   for (const t of list) if (inRange(t, r)) m.set(t.category || 'Unkategorisiert', (m.get(t.category || 'Unkategorisiert') || 0) + txChf(t));
@@ -59,7 +71,7 @@ export function lastMonths(n, now = new Date()) {
 export function monthlySeries(n) {
   const keys = lastMonths(n);
   const agg = list => keys.map(k => sum(list.filter(t => monthKey(t.date) === k), txChf));
-  return { keys, income: agg(db().income), expense: agg(db().expense) };
+  return { keys, income: agg(db().income), expense: agg(opex()) };
 }
 
 /** Bewertung einer Vermögensposition. Alle Werte in CHF und in der jeweiligen Währung. */

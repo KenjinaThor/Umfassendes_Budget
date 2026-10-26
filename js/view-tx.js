@@ -2,24 +2,28 @@
 import { db, save, hasHousehold } from './store.js';
 import * as calc from './calc.js';
 import * as fx from './fx.js';
+import { groupsFor, isKnown, canonical, isSavings } from './categories.js';
 import { $, esc, chf, fmt, uid, today, dispDate } from './util.js';
 import { formDialog, confirmBox, toast } from './ui.js';
 
-const CFG = {
-  income: { title: 'Einnahmen', cats: ['Lohn', 'Nebenverdienst', 'Zinsen/Dividenden', 'Rückerstattung', 'Geschenk', 'Sonstiges'] },
-  expense: { title: 'Ausgaben', cats: ['Wohnen', 'Nebenkosten', 'Krankenkasse', 'Versicherungen', 'Steuern', 'Lebensmittel', 'Mobilität', 'Freizeit', 'Ferien', 'Kleidung', 'Gesundheit', 'Bildung', 'Sonstiges'] },
+const groups = (kind, extra, current) => {
+  const g = groupsFor(kind).map(x => [x.name, x.positions.map(p => p.name)]);
+  const own = [...new Set([...extra, ...(current && !isKnown(current) ? [current] : [])])];
+  return own.length ? [...g, ['Eigene Kategorien', own]] : g;
 };
+const CFG = { income: { title: 'Einnahmen' }, expense: { title: 'Ausgaben' } };
 const PAGE = 150;
 const state = { income: { period: 'm0', q: '', shown: PAGE }, expense: { period: 'm0', q: '', shown: PAGE } };
 
 async function edit(kind, t) {
-  const cats = [...new Set([...CFG[kind].cats, ...db()[kind].map(x => x.category)])].sort();
+  const cats = [...new Set(db()[kind].map(x => x.category))].filter(c => !isKnown(c)).sort();
   const v = await formDialog({
     title: `${CFG[kind].title}: ${t ? 'Bearbeiten' : 'Neue Buchung'}`,
-    values: t || { date: today(), currency: 'CHF' },
+    values: t ? { ...t, category: isKnown(t.category) ? canonical(t.category) : t.category } : { date: today(), currency: 'CHF' },
     fields: [
       { name: 'date', label: 'Datum', type: 'date', required: true },
-      { name: 'category', label: 'Kategorie', list: cats, required: true },
+      { name: 'category', label: 'Kategorie (Budgetplan)', type: 'select', groups: groups(kind, cats, t?.category), required: true },
+      { name: 'custom', label: 'oder eigene Kategorie', hint: 'Leer lassen, um die Auswahl oben zu verwenden' },
       { name: 'description', label: 'Beschreibung' },
       { name: 'amount', label: 'Betrag', type: 'number', step: '0.01', required: true },
       { name: 'currency', label: 'Währung', type: 'select', options: fx.CURRENCIES.map(c => [c, c]) },
@@ -28,7 +32,7 @@ async function edit(kind, t) {
     ],
   });
   if (!v) return false;
-  const rec = { ...(t || { id: uid() }), date: v.date, category: v.category.trim(), description: v.description.trim(), amount: Math.abs(+v.amount), currency: v.currency, account: v.account.trim() };
+  const rec = { ...(t || { id: uid() }), date: v.date, category: (v.custom || '').trim() || v.category, description: v.description.trim(), amount: Math.abs(+v.amount), currency: v.currency, account: v.account.trim() };
   delete rec.rate;
   if (v.shared) rec.shared = true; else delete rec.shared;
   if (rec.currency !== 'CHF') {
@@ -47,7 +51,9 @@ export function render(el, kind) {
   const q = s.q.toLowerCase();
   const rows = list.filter(t => calc.inRange(t, r) && (!q || `${t.category} ${t.description} ${t.account}`.toLowerCase().includes(q)))
     .sort((a, b) => b.date.localeCompare(a.date));
-  const total = rows.reduce((a, t) => a + calc.txChf(t), 0);
+  const sav = kind === 'expense' ? rows.filter(t => isSavings(t.category)) : [];
+  const total = rows.reduce((a, t) => a + (sav.includes(t) ? 0 : calc.txChf(t)), 0);
+  const savTotal = sav.reduce((a, t) => a + calc.txChf(t), 0);
   const missingFx = rows.some(t => t.currency !== 'CHF' && (t.rate ?? fx.latest(t.currency)) == null);
 
   el.innerHTML = `
@@ -55,7 +61,7 @@ export function render(el, kind) {
     <div class="toolbar">
       <select id="period">${Object.entries(calc.PERIODS).map(([k, l]) => `<option value="${k}"${k === s.period ? ' selected' : ''}>${l}</option>`).join('')}</select>
       <input id="q" type="search" placeholder="Suchen…" value="${esc(s.q)}">
-      <div class="total">Summe: <b>${chf(total)}</b> · ${rows.length} Buchungen</div>
+      <div class="total">Summe: <b>${chf(total)}</b>${sav.length ? ` · Vorsorge/Sparen: <b>${chf(savTotal)}</b>` : ''} · ${rows.length} Buchungen</div>
     </div>
     ${missingFx ? '<div class="banner">Für einige Fremdwährungen fehlt der Wechselkurs – Summe unvollständig.</div>' : ''}
     <div class="card tablewrap"><table><thead><tr><th>Datum</th><th>Kategorie</th><th>Beschreibung</th><th>Konto</th><th class="num">Betrag</th><th class="num">CHF</th><th></th></tr></thead><tbody>
