@@ -8,6 +8,7 @@ import { formDialog, confirmBox, toast } from './ui.js';
 import * as RV from './view-recurring.js';
 import * as Docs from './docs.js';
 import { openDialog, closeDialog } from './ui.js';
+import { intervalLabel } from './recurring.js';
 import { download } from './util.js';
 import { skipBudget as skipBudgetEntry } from './budget.js';
 
@@ -18,7 +19,24 @@ const groups = (kind, extra, current) => {
 };
 const CFG = { income: { title: 'Einnahmen' }, expense: { title: 'Ausgaben' } };
 const PAGE = 150;
-const state = { income: { period: 'm0', q: '', shown: PAGE }, expense: { period: 'm0', q: '', shown: PAGE } };
+const state = { income: { period: 'm0', q: '', shown: PAGE, per: 'all', sort: 'date-desc' }, expense: { period: 'm0', q: '', shown: PAGE, per: 'all', sort: 'date-desc' } };
+
+// Periodizität einer Buchung: einmalig, Budget-Automatik oder Rhythmus des wiederkehrenden Eintrags (in Monaten)
+const perOf = t => {
+  if (t.recId) { const r = db().recurring.find(x => x.id === t.recId); return r ? { key: `m${r.interval}`, months: r.interval } : { key: 'rec', months: 0.7 }; }
+  if (t.auto === 'budget' && !t.manual) return { key: 'budget', months: 0.5 };
+  return { key: 'once', months: 0 };
+};
+const perLabel = key => key === 'once' ? 'Einmalig' : key === 'budget' ? 'Budget-Automatik (monatlich)' : key === 'rec' ? 'Wiederkehrend' : intervalLabel(+key.slice(1))[0].toUpperCase() + intervalLabel(+key.slice(1)).slice(1);
+const SORTS = {
+  'date-desc': ['Datum: neueste zuerst', (a, b) => b.date.localeCompare(a.date)],
+  'date-asc': ['Datum: älteste zuerst', (a, b) => a.date.localeCompare(b.date)],
+  'amount-desc': ['Betrag: hoch → tief', (a, b) => calc.txChf(b) - calc.txChf(a)],
+  'amount-asc': ['Betrag: tief → hoch', (a, b) => calc.txChf(a) - calc.txChf(b)],
+  'cat': ['Kategorie A–Z', (a, b) => a.category.localeCompare(b.category, 'de') || b.date.localeCompare(a.date)],
+  'per-asc': ['Periodizität: einmalig → selten', (a, b) => perOf(a).months - perOf(b).months || b.date.localeCompare(a.date)],
+  'per-desc': ['Periodizität: selten → einmalig', (a, b) => perOf(b).months - perOf(a).months || b.date.localeCompare(a.date)],
+};
 
 const docBoxHtml = t => `<div class="docbox"><b>📎 Dokumente</b> <span class="muted small">(optional, max. ${Docs.MAX_DOCS}, je max. ${Docs.MAX_BYTES / 1048576} MB – verschlüsselt gespeichert)</span>
   ${(t?.docs || []).map(d => `<label class="check"><input type="checkbox" name="rmdoc_${esc(d.id)}"><span>${esc(d.name)} (${Docs.sizeLabel(d.size)}) entfernen</span></label>`).join('')}
@@ -99,8 +117,14 @@ export function render(el, kind) {
   const s = state[kind], list = db()[kind];
   const r = calc.range(s.period);
   const q = s.q.toLowerCase();
-  const rows = list.filter(t => calc.inRange(t, r) && (!q || `${t.category} ${t.description} ${t.account}`.toLowerCase().includes(q)))
-    .sort((a, b) => b.date.localeCompare(a.date));
+  const inPeriod = list.filter(t => calc.inRange(t, r) && (!q || `${t.category} ${t.description} ${t.account}`.toLowerCase().includes(q)));
+  // verfügbare Rhythmen im gewählten Zeitraum (für den Filter)
+  const perKeys = new Map();
+  for (const t of inPeriod) { const { key, months } = perOf(t); perKeys.set(key, months); }
+  if (s.per !== 'all' && s.per !== 'recAll' && !perKeys.has(s.per)) perKeys.set(s.per, 0);
+  const perOptions = [...perKeys.entries()].sort((a, b) => a[1] - b[1]).map(([k]) => k);
+  const matchPer = t => s.per === 'all' || (s.per === 'recAll' ? perOf(t).key !== 'once' : perOf(t).key === s.per);
+  const rows = inPeriod.filter(matchPer).sort(SORTS[s.sort][1]);
   const sav = kind === 'expense' ? rows.filter(t => isSavings(t.category)) : [];
   const total = rows.reduce((a, t) => a + (sav.includes(t) ? 0 : calc.txChf(t)), 0);
   const savTotal = sav.reduce((a, t) => a + calc.txChf(t), 0);
@@ -110,20 +134,24 @@ export function render(el, kind) {
     <div class="pagehead"><h1>${CFG[kind].title}</h1><button class="btn primary" id="add">+ Neu</button></div>
     <div class="toolbar">
       <select id="period">${Object.entries(calc.PERIODS).map(([k, l]) => `<option value="${k}"${k === s.period ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="per" aria-label="Periodizität"><option value="all">Alle Rhythmen</option><option value="recAll"${s.per === 'recAll' ? ' selected' : ''}>Nur wiederkehrende</option>${perOptions.map(k => `<option value="${k}"${k === s.per ? ' selected' : ''}>${perLabel(k)}</option>`).join('')}</select>
+      <select id="sort" aria-label="Sortierung">${Object.entries(SORTS).map(([k, [l]]) => `<option value="${k}"${k === s.sort ? ' selected' : ''}>${l}</option>`).join('')}</select>
       <input id="q" type="search" placeholder="Suchen…" value="${esc(s.q)}">
       <div class="total">Summe: <b>${chf(total)}</b>${sav.length ? ` · Vorsorge/Sparen: <b>${chf(savTotal)}</b>` : ''} · ${rows.length} Buchungen</div>
     </div>
-    ${RV.panelHtml(kind)}
+    ${RV.panelHtml(kind, s.per === 'all' || s.per === 'recAll' ? null : (s.per === 'once' || s.per === 'budget' ? () => false : r => `m${r.interval}` === s.per))}
     ${missingFx ? '<div class="banner">Für einige Fremdwährungen fehlt der Wechselkurs – Summe unvollständig.</div>' : ''}
-    <div class="card tablewrap"><table><thead><tr><th>Datum</th><th>Kategorie</th><th>Beschreibung</th><th>Konto</th><th class="num">Betrag</th><th class="num">CHF</th><th></th></tr></thead><tbody>
-    ${rows.slice(0, s.shown).map(t => `<tr><td>${dispDate(t.date)}</td><td>${esc(t.category)}${t.recId ? '<span class="badge" title="Automatisch aus wiederkehrendem Eintrag">🔁</span>' : ''}${t.auto && !t.manual ? '<span class="badge" title="Automatisch aus dem Budgetplan">Budget</span>' : ''}${t.shared ? '<span class="badge">Haushalt</span>' : ''}</td><td>${esc(t.description)}</td><td>${esc(t.account)}</td>
+    <div class="card tablewrap"><table><thead><tr><th>Datum</th><th>Kategorie</th><th>Rhythmus</th><th>Beschreibung</th><th>Konto</th><th class="num">Betrag</th><th class="num">CHF</th><th></th></tr></thead><tbody>
+    ${rows.slice(0, s.shown).map(t => `<tr><td>${dispDate(t.date)}</td><td>${esc(t.category)}${t.recId ? '<span class="badge" title="Automatisch aus wiederkehrendem Eintrag">🔁</span>' : ''}${t.auto && !t.manual ? '<span class="badge" title="Automatisch aus dem Budgetplan">Budget</span>' : ''}${t.shared ? '<span class="badge">Haushalt</span>' : ''}</td><td class="small">${esc(perLabel(perOf(t).key))}</td><td>${esc(t.description)}</td><td>${esc(t.account)}</td>
       <td class="num">${t.currency !== 'CHF' ? `${t.currency} ${fmt(t.amount)}` : ''}</td><td class="num">${chf(calc.txChf(t))}</td>
       <td class="num nowrap">${t.docs?.length ? `<button class="icon" data-act="docs" data-id="${t.id}" title="Dokumente" aria-label="Dokumente">📎${t.docs.length}</button>` : ''}<button class="icon" data-act="edit" data-id="${t.id}" aria-label="Bearbeiten">✎</button><button class="icon" data-act="del" data-id="${t.id}" aria-label="Löschen">✕</button></td></tr>`).join('')
-      || '<tr><td colspan="7" class="muted">Keine Buchungen im gewählten Zeitraum.</td></tr>'}
+      || '<tr><td colspan="8" class="muted">Keine Buchungen im gewählten Zeitraum.</td></tr>'}
     </tbody></table></div>
     ${rows.length > s.shown ? `<button class="btn" id="more">Mehr anzeigen (${rows.length - s.shown})</button>` : ''}`;
 
   const redraw = () => render(el, kind);
+  $('#per', el).onchange = e => { s.per = e.target.value; s.shown = PAGE; redraw(); };
+  $('#sort', el).onchange = e => { s.sort = e.target.value; s.shown = PAGE; redraw(); };
   $('#period', el).onchange = e => { s.period = e.target.value; s.shown = PAGE; redraw(); };
   $('#q', el).oninput = e => {
     s.q = e.target.value; s.shown = PAGE; redraw();

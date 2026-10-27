@@ -35,8 +35,8 @@ export async function createFromForm(kind, v, original) {
 
 const describeHistory = rule => rule.amounts.map(c => `ab ${dispDate(c.from)}: ${fmt(c.amount)}`).join(' → ');
 
-export function panelHtml(kind) {
-  const rules = (db().recurring || []).filter(r => r.kind === kind);
+export function panelHtml(kind, pred) {
+  const rules = (db().recurring || []).filter(r => r.kind === kind && (!pred || pred(r))).sort((a, b) => a.interval - b.interval || a.category.localeCompare(b.category, 'de'));
   if (!rules.length) return '';
   const now = today();
   return `<details class="card recur" open><summary><b>🔁 Wiederkehrende Einträge</b> (${rules.length})</summary>
