@@ -60,7 +60,7 @@ async function importFile(file, onDone) {
     const bp = (dbx.settings.budget ||= {});
     for (const b of (rows.budget || []).filter(b => !b._errors.length)) {
       budgetLib.setSollFlat(b.name, b.amount);
-      if (b.auto === true && b.amount > 0) budgetLib.setAuto(b.name, true, b.from, b.kind); else if (b.auto === false) budgetLib.setAuto(b.name, false);
+      if (b.auto === true && b.amount > 0 && b.kind !== 'income') budgetLib.setAuto(b.name, true, b.from, b.kind); else if (b.auto === false) budgetLib.setAuto(b.name, false);
     }
     recurring.materialize();
     await save(); closeDialog(); toast('Import abgeschlossen'); onDone();

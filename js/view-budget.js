@@ -3,7 +3,7 @@ import { db, save } from './store.js';
 import * as calc from './calc.js';
 import { INCOME_GROUPS, EXPENSE_GROUPS, SAVINGS_GROUPS, isKnown, canonical } from './categories.js';
 import { sollAt, setSoll, setAuto, autoCfg } from './budget.js';
-import { materialize } from './recurring.js';
+import { materialize, futureIncomeByMonth } from './recurring.js';
 import { lookup } from './categories.js';
 import { $, esc, chf, fmt, signed, tone, arrow, monthKey, monthLabel, sum } from './util.js';
 
@@ -39,7 +39,8 @@ function renderYear(el) {
   };
   const inc = actualBy(db().income), exp = actualBy(db().expense);
   const savNames = new Set(SAVINGS_GROUPS.flatMap(g => g.positions.map(p => p.name)));
-  const val = (name, m, act) => {
+  const val = (name, m, act, kind) => {
+    if (kind === 'income') return act.get(m).get(name) || 0; // Einnahmen: Ist (+ Planung aus wiederkehrenden Einträgen), kein Soll
     const sl = sollAt(name, m), is = act.get(m).get(name) || 0;
     return yview === 'soll' ? sl : yview === 'ist' ? is : is - sl;
   };
@@ -51,12 +52,16 @@ function renderYear(el) {
     for (const k of Object.keys(db().settings.budget || {})) if (!isKnown(k) && kind === 'expense') extraNames.add(k);
     const all = kind === 'savings' ? groups : [...groups, ...(extraNames.size ? [{ name: 'Weitere Positionen', positions: [...extraNames].map(name => ({ name })) }] : [])];
     return all.map(g => {
-      const rows = g.positions.map(p => ({ name: p.name, v: months.map(m => val(p.name, m, act)) }))
+      const rows = g.positions.map(p => ({ name: p.name, v: months.map(m => val(p.name, m, act, kind)) }))
         .filter(r => showEmpty || r.v.some(x => Math.abs(x) > 0.004));
       return { name: g.name, rows, v: months.map((_, i) => sum(rows, r => r.v[i])) };
     }).filter(g => showEmpty || g.rows.length);
   };
-  const incG = build(INCOME_GROUPS, inc, 'income'), expG = build(EXPENSE_GROUPS, exp, 'expense'), savG = build(SAVINGS_GROUPS, exp, 'savings');
+  // Einnahmen: «Soll/Plan» = Ist bis heute + geplante Einnahmen aus wiederkehrenden Einträgen; «Ist» = nur Buchungen; «Abweichung»: keine
+  const plan = futureIncomeByMonth(months), none = new Map(months.map(m => [m, new Map()]));
+  const incPlan = new Map(months.map(m => { const mm = new Map(inc.get(m)); for (const [k, v] of plan.get(m)) mm.set(k, (mm.get(k) || 0) + v); return [m, mm]; }));
+  const incAct = yview === 'ist' ? inc : yview === 'soll' ? incPlan : none;
+  const incG = build(INCOME_GROUPS, incAct, 'income'), expG = build(EXPENSE_GROUPS, exp, 'expense'), savG = build(SAVINGS_GROUPS, exp, 'savings');
   const colSum = gs => months.map((_, i) => sum(gs, g => g.v[i]));
   const tI = colSum(incG), tE = colSum(expG), tS = colSum(savG);
   const free = tI.map((v, i) => v - tE[i]);
@@ -81,7 +86,7 @@ function renderYear(el) {
       <select id="yview"><option value="soll"${yview === 'soll' ? ' selected' : ''}>Soll (Plan)</option><option value="ist"${yview === 'ist' ? ' selected' : ''}>Ist (Buchungen)</option><option value="diff"${yview === 'diff' ? ' selected' : ''}>Abweichung</option></select>
       <label class="row small"><input type="checkbox" id="empty"${showEmpty ? ' checked' : ''}> leere Positionen anzeigen</label>
     </div>
-    <p class="muted">Jahresbudget ${year} – ${esc(label)}, Beträge in CHF. Soll-Änderungen nimmst du in der Monatsansicht vor.</p>
+    <p class="muted">Jahresbudget ${year} – ${esc(label)}, Beträge in CHF. Einnahmen = erfasste Buchungen plus geplante wiederkehrende Einnahmen (kein Soll); Soll-Änderungen bei den Ausgaben nimmst du in der Monatsansicht vor.</p>
     <div class="card tablewrap budget yearly"><table>
       <thead><tr><th>Position</th>${months.map(m => `<th class="num">${monthLabel(m).replace(/ \d+$/, '')}</th>`).join('')}<th class="num yr">Jahr</th></tr></thead>
       <tbody>
@@ -137,30 +142,35 @@ function renderMonth(el) {
   const posRow = (p, hi, kind) => {
     const a = auto[p.name];
     const k = lookup(p.name)?.kind ?? p.kind ?? kind;
+    if (k === 'income') {
+      // Einnahmen (inkl. Dividenden/Zusatzeinkommen): nur Ist, kein Soll und keine Abweichung
+      return `<tr><td>${esc(p.name)}${p.hint ? `<div class="muted small">${esc(p.hint)}</div>` : ''}</td><td></td><td></td><td class="num">${num(p.ist)}</td><td></td></tr>`;
+    }
     return `<tr><td>${esc(p.name)}${p.hint ? `<div class="muted small">${esc(p.hint)}</div>` : ''}</td>
     <td class="num"><input class="soll" type="number" inputmode="decimal" step="0.05" min="0" data-name="${esc(p.name)}" value="${p.soll || ''}" aria-label="Soll ${esc(p.name)}"></td>
     <td class="auto"><label title="Sollbetrag jeden Monat automatisch buchen"><input type="checkbox" class="autochk" data-name="${esc(p.name)}" data-kind="${k}"${a ? ' checked' : ''}>${a ? `<span class="small muted">ab ${monthLabel(a.from)}</span>` : ''}</label></td>
     <td class="num">${num(p.ist)}</td>${diff(p.soll, p.ist, hi)}</tr>`;
   };
   const sumRow = (label, s, i, hi, cls = 'sub') => `<tr class="${cls}"><td>${esc(label)}</td><td class="num">${fmt(s.soll ?? s)}</td><td></td><td class="num">${fmt(s.ist ?? i)}</td>${diff(s.soll ?? s, s.ist ?? i, hi)}</tr>`;
+  const incRow = (label, v, cls = 'sub') => `<tr class="${cls}"><td>${esc(label)}</td><td></td><td></td><td class="num">${fmt(v)}</td><td></td></tr>`;
   const section = (title, gs, hi, totalLabel, t, kindOf = 'expense') => `<tr class="head"><td colspan="5">${esc(title)}</td></tr>
     ${gs.map((g, n) => `<tr class="group"><td colspan="5">${title === 'AUSGABEN' ? `${n + 1}. ` : ''}${esc(g.name)}</td></tr>${g.rows.map(p => posRow(p, hi, kindOf)).join('')}
-      ${gs.length > 1 || title === 'EINNAHMEN' ? sumRow(`Zwischentotal ${g.name}`, g, 0, hi) : ''}`).join('')}
-    ${sumRow(totalLabel, t, 0, hi, 'total')}`;
+      ${gs.length > 1 || title === 'EINNAHMEN' ? (kindOf === 'income' ? incRow(`Zwischentotal ${g.name}`, g.ist) : sumRow(`Zwischentotal ${g.name}`, g, 0, hi)) : ''}`).join('')}
+    ${kindOf === 'income' ? incRow(totalLabel, t.ist, 'total') : sumRow(totalLabel, t, 0, hi, 'total')}`;
 
   el.innerHTML = `
     <div class="pagehead"><h1>Budgetplan</h1>${modeTabs()}
       <div class="row"><select id="month">${monthsList().map(m => `<option value="${m}"${m === month ? ' selected' : ''}>${monthLabel(m)}</option>`).join('')}</select></div></div>
-    <p class="muted">«Soll» = geplanter Monatsbetrag in CHF; eine Änderung gilt ab dem gewählten Monat, frühere Monate bleiben unverändert. «Ist» = erfasste Buchungen im gewählten Monat.</p>
+    <p class="muted">Einnahmen (auch Dividenden und Zusatzeinkommen) werden nur als <b>Ist</b> geführt, ohne Soll. «Soll» bei den Ausgaben = geplanter Monatsbetrag in CHF; eine Änderung gilt ab dem gewählten Monat, frühere Monate bleiben unverändert. «Ist» = erfasste Buchungen im gewählten Monat.</p>
     <p class="muted"><b>Auto:</b> Häkchen setzen = der Sollbetrag wird ab dem gewählten Monat jeden Monat automatisch als Buchung übernommen. Erfasst du in einem Monat selbst etwas in dieser Kategorie, ersetzt es die automatische Buchung dieses Monats.</p>
     <div class="card tablewrap budget"><table>
       <thead><tr><th>Position</th><th class="num">Soll / Monat</th><th>Auto</th><th class="num">Ist</th><th class="num">Abweichung</th></tr></thead>
       <tbody>
       ${section('EINNAHMEN', incG, true, 'Total Einnahmen', tI, 'income')}
       ${section('AUSGABEN', expG, false, 'TOTAL AUSGABEN', tE)}
-      ${sumRow('FREIES EINKOMMEN (Einnahmen – Ausgaben)', free, 0, true, 'total big')}
+      ${incRow('FREIES EINKOMMEN (Einnahmen – Ausgaben)', free.ist, 'total big')}
       ${section('VORSORGE & VERMÖGENSAUFBAU', savG, true, 'Total Spar- & Vorsorgerate', tS)}
-      ${sumRow('RESTBETRAG / PUFFER NACH SPARRATE', rest, 0, true, 'total big')}
+      ${incRow('RESTBETRAG / PUFFER NACH SPARRATE', rest.ist, 'total big')}
       </tbody></table></div>
     <p class="muted small">Beträge in CHF. Die Excel-Vorlage enthält dasselbe Blatt «Budgetplan» zum Ausfüllen und Importieren.</p>`;
 

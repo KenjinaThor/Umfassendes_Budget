@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.8.1",
+    "date": "2026-10-27",
+    "items": [
+      "Budgetplan: Einnahmen (inkl. Dividenden und Zusatzeinkommen) haben kein Soll mehr, es wird nur das Ist angezeigt – keine Abweichung/kein Abzug mehr",
+      "Jahresbudget: Einnahmen = erfasste Buchungen plus geplante wiederkehrende Einnahmen"
+    ]
+  },
+  {
     "version": "0.8.0",
     "date": "2026-10-26",
     "items": [

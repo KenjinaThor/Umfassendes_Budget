@@ -91,6 +91,7 @@ function materializeBudget(now) {
   const valid = new Set();
   for (const [name, cfg] of Object.entries(auto)) {
     const kind = lookup(name)?.kind ?? cfg.kind ?? 'expense';
+    if (kind === 'income') continue; // Einnahmen werden nur als Ist geführt (kein Soll/Automatik)
     const byId = new Map(d[kind].filter(t => t.auto === 'budget').map(t => [t.id, t]));
     for (const m of monthsBetween(cfg.from, nowMonth)) {
       const id = `b:${name}:${m}`, amt = sollAt(name, m);
@@ -171,6 +172,7 @@ export function projection(nYears, now = today()) {
     const auto = d.settings.budgetAuto || {}, skip = new Set(d.settings.budgetSkip || []);
     for (const [name, cfg] of Object.entries(auto)) {
       const kind = lookup(name)?.kind ?? cfg.kind ?? 'expense';
+      if (kind === 'income') continue;
       for (const m of monthsBetween(`${Y}-01`, `${Y}-12`)) {
         if (m < cfg.from || `${m}-01` <= now || skip.has(`${name}|${m}`)) continue;
         const amt = sollAt(name, m);
@@ -185,4 +187,19 @@ export function projection(nYears, now = today()) {
   let cum = 0;
   for (const y of out) { cum += y.rest; y.cum = cum; }
   return { years: out, missingFx };
+}
+
+/** Noch nicht gebuchte, geplante Einnahmen aus wiederkehrenden Einträgen je Monat (Kategorie -> CHF). */
+export function futureIncomeByMonth(months, now = today()) {
+  const out = new Map(months.map(m => [m, new Map()]));
+  for (const rule of (db().recurring || []).filter(r => r.kind === 'income')) {
+    const rate = fx.latest(rule.currency) ?? 0;
+    for (const date of occurrences(rule, `${months.at(-1)}-31`)) {
+      const m = monthOf(date);
+      if (date <= now || rule.skip?.includes(date) || !out.has(m)) continue;
+      const k = canonical(rule.category);
+      out.get(m).set(k, (out.get(m).get(k) || 0) + effectiveAt(rule, date) * rate);
+    }
+  }
+  return out;
 }
