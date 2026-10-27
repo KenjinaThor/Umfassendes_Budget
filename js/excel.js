@@ -3,7 +3,7 @@ import { CURRENCIES } from './fx.js';
 import { TYPE_LABELS } from './calc.js';
 import { METAL_SYMBOLS } from './market.js';
 import { uid, today } from './util.js';
-import { isSalary } from './recurring.js';
+import { isSalary, thirteenthMode } from './recurring.js';
 import { hasHousehold } from './store.js';
 import { INCOME_GROUPS, EXPENSE_GROUPS, SAVINGS_GROUPS, canonical, isKnown } from './categories.js';
 
@@ -29,7 +29,7 @@ function help() {
     ['  Datum: TT.MM.JJJJ oder JJJJ-MM-TT.  Betrag: positive Zahl.  Währung: siehe unten (leer = CHF).'],
     ['  Kategorie: Position aus dem Blatt «Budgetplan» (z. B. «Miete inkl. Nebenkosten (Heizung, Wasser)»); eigene Kategorien sind erlaubt.'],
     ['Blatt «Wiederkehrend»: Art (Einnahme/Ausgabe), Betrag je Zahlung, Start, optional Ende, Intervall in Monaten (1–60; 12 = jährlich, 24 = alle 2 Jahre).'],
-    ['  «13. Monatslohn» = ja (nur Kategorien mit «Lohn», Intervall 1): Betrag wird × 13/12 gebucht.'],
+    ['  «13. Monatslohn» (nur Kategorien mit «Lohn», Intervall 1): monatlich = Betrag × 13/12; halbjährlich = zwei Zahlungen zu 50 % in den Monaten von «13. ML Monate» (z. B. 6, 12); einmalig = eine Zahlung im Monat (z. B. 12).'],
     ['  «Anpassungen»: Erhöhungen ab Stichtag als «JJJJ-MM-TT:Betrag; JJJJ-MM-TT:Betrag» (Lohn-/Prämienerhöhung).'],
     ['  «Automatisch buchen» = ja: der Sollbetrag wird ab «Ab Monat» (JJJJ-MM) jeden Monat automatisch als Buchung übernommen; manuell erfasste Buchungen in dieser Kategorie ersetzen den Automatik-Betrag des Monats.'],
     ['Blatt «Budgetplan»: Spalte «Betrag monatlich (CHF)» ausfüllen = geplanter Monatsbetrag je Position (Soll). Leer = kein Budget.'],
@@ -65,10 +65,10 @@ function budgetRows(settings = {}) {
   return rows;
 }
 
-const REC_COLS = ['Art', 'Kategorie', 'Beschreibung', 'Betrag', 'Währung', 'Konto', 'Start', 'Ende', 'Intervall (Monate)', '13. Monatslohn', 'Gemeinsam', 'Anpassungen'];
+const REC_COLS = ['Art', 'Kategorie', 'Beschreibung', 'Betrag', 'Währung', 'Konto', 'Start', 'Ende', 'Intervall (Monate)', '13. Monatslohn', '13. ML Monate', 'Gemeinsam', 'Anpassungen'];
 const recRows = (list = []) => list.map(r => [
   r.kind === 'income' ? 'Einnahme' : 'Ausgabe', r.category, r.description || '', r.amounts[0].amount, r.currency, r.account || '', r.start, r.end || '',
-  r.interval, r.thirteenth ? 'ja' : '', r.shared ? 'ja' : '', r.amounts.slice(1).map(c => `${c.from}:${c.amount}`).join('; '),
+  r.interval, { monthly: 'monatlich', half: 'halbjährlich', once: 'einmalig' }[thirteenthMode(r)] || '', (r.t13 || []).join(', '), r.shared ? 'ja' : '', r.amounts.slice(1).map(c => `${c.from}:${c.amount}`).join('; '),
 ]);
 
 function workbook(d) {
@@ -82,7 +82,7 @@ function workbook(d) {
   XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.expense), [12, 20, 36, 12, 9, 18, 11]), 'Ausgaben');
   XLSX.utils.book_append_sheet(wb, sheet(AS_COLS, as(d.assets), [12, 28, 12, 10, 12, 8, 15, 9, 20, 14, 11]), 'Vermögen');
   XLSX.utils.book_append_sheet(wb, sheet(BUDGET_COLS, budgetRows(d.settings), [12, 38, 52, 22, 40, 18, 12]), 'Budgetplan');
-  XLSX.utils.book_append_sheet(wb, sheet(REC_COLS, recRows(d.recurring), [10, 34, 30, 12, 9, 16, 12, 12, 18, 14, 11, 40]), 'Wiederkehrend');
+  XLSX.utils.book_append_sheet(wb, sheet(REC_COLS, recRows(d.recurring), [10, 34, 30, 12, 9, 16, 12, 12, 18, 16, 14, 11, 40]), 'Wiederkehrend');
   XLSX.utils.book_append_sheet(wb, help(), 'Anleitung');
   return wb;
 }
@@ -193,10 +193,19 @@ function parseRecurring(rows) {
       if (!d || Number.isNaN(a) || a < 0) errors.push(`Ungültige Anpassung «${part}» (Format JJJJ-MM-TT:Betrag)`); else changes.push({ from: d, amount: a });
     }
     const category = canonical(str(r.kategorie));
+    const t13txt = str(r['13. monatslohn']).toLowerCase();
+    let thirteenth = 'none', t13 = [];
+    if (t13txt) {
+      const months = str(r['13. ml monate']).split(/[;,\s]+/).filter(Boolean).map(Number);
+      if (/^(ja|j|1|x|true|yes|monatlich)/.test(t13txt)) thirteenth = 'monthly';
+      else if (t13txt.startsWith('halb')) { thirteenth = 'half'; t13 = [...new Set(months)].sort((a, b) => a - b); if (t13.length !== 2 || t13.some(m => !(m >= 1 && m <= 12))) errors.push('Halbjährlicher 13. Monatslohn braucht zwei verschiedene Monate (1–12), z. B. «6, 12»'); }
+      else if (t13txt.startsWith('einmal')) { thirteenth = 'once'; t13 = months.slice(0, 1); if (t13.length !== 1 || !(t13[0] >= 1 && t13[0] <= 12)) errors.push('Einmaliger 13. Monatslohn braucht einen Monat (1–12)'); }
+      else errors.push(`Unbekannter Wert bei «13. Monatslohn»: «${str(r['13. monatslohn'])}» (monatlich, halbjährlich oder einmalig)`);
+    }
     const interv = errors.length ? 1 : interval;
     out.push({
       _row: i + 2, _errors: errors, id: uid(), kind, category, description: str(r.beschreibung), currency, account: str(r.konto),
-      interval: interv, start, end: end || '', thirteenth: isYes(r['13. monatslohn']) && isSalary(kind, category) && interv === 1,
+      interval: interv, start, end: end || '', ...(thirteenth !== 'none' && isSalary(kind, category) && interv === 1 ? { thirteenth, ...(t13.length ? { t13 } : {}) } : { thirteenth: 'none' }),
       amounts: [{ from: start, amount }, ...changes.filter(c => c.from > start).sort((a, b) => a.from.localeCompare(b.from))], skip: [],
       ...(isYes(r.gemeinsam) && hasHousehold() ? { shared: true } : {}),
     });

@@ -11,20 +11,26 @@ const catGroups = (kind, current) => {
   return current && !isKnown(current) ? [...g, ['Eigene Kategorien', [current]]] : g;
 };
 
+const monthOptions = R.MONTH_NAMES.map((n, i) => [String(i + 1), n]);
+/** Auswahl des 13. Monatslohns: monatlich anteilig, halbjährlich 2 × 50 % (zwei Monate) oder einmalig (ein Monat). */
+export const thirteenthFormFields = visible => [
+  { name: 'thirteenth', label: '13. Monatslohn', type: 'select', value: 'none', when: visible, options: [
+    ['none', 'Keiner'], ['monthly', 'Monatlich anteilig dazugerechnet (Betrag × 13/12)'], ['half', 'Halbjährlich je 50 % ausbezahlt (zwei Monate)'], ['once', 'Einmal jährlich ausbezahlt (ein Monat)']] },
+  { name: 't13a', label: 'Auszahlungsmonat (bei halbjährlich: 1. Zahlung)', type: 'select', options: monthOptions, value: '6', when: x => visible(x) && (x.thirteenth === 'half' || x.thirteenth === 'once') },
+  { name: 't13b', label: '2. Zahlung (50 %) im Monat', type: 'select', options: monthOptions, value: '12', when: x => visible(x) && x.thirteenth === 'half' },
+];
+
 /** Zusätzliche Formularfelder beim Erfassen einer Buchung. */
 export const repeatFields = kind => [
   { name: 'repeat', label: 'Wiederholung', type: 'select', options: R.INTERVAL_OPTIONS, value: '0' },
   { name: 'until', label: 'Wiederholen bis (optional)', type: 'date', when: v => v.repeat && v.repeat !== '0' },
-  ...(kind === 'income' ? [{
-    name: 'thirteenth', label: '13. Monatslohn (Lohn wird anteilig auf 12 Monate verteilt: Betrag × 13/12)', type: 'checkbox',
-    when: v => v.repeat === '1' && R.isSalary('income', (v.custom || '').trim() || v.category),
-  }] : []),
+  ...(kind === 'income' ? thirteenthFormFields(x => x.repeat === '1' && R.isSalary('income', (x.custom || '').trim() || x.category)) : []),
 ];
 
 export async function createFromForm(kind, v, original) {
   const rule = R.newRule(kind, {
     category: (v.custom || '').trim() || v.category, description: v.description.trim(), amount: Math.abs(+v.amount), currency: v.currency,
-    account: v.account.trim(), interval: +v.repeat, start: v.date, end: v.until || '', thirteenth: !!v.thirteenth, shared: !!v.shared,
+    account: v.account.trim(), interval: +v.repeat, start: v.date, end: v.until || '', thirteenth: v.thirteenth, t13a: v.t13a, t13b: v.t13b, shared: !!v.shared,
   });
   if (rule.end && rule.end < rule.start) throw new Error('«Wiederholen bis» liegt vor dem Startdatum.');
   db().recurring.push(rule);
@@ -43,7 +49,7 @@ export function panelHtml(kind, pred) {
     <div class="tablewrap"><table><thead><tr><th>Kategorie</th><th class="num">Betrag aktuell</th><th>Rhythmus</th><th>Zeitraum</th><th></th></tr></thead><tbody>
     ${rules.map(r => {
       const ended = r.end && r.end < now;
-      return `<tr${ended ? ' class="muted"' : ''}><td>${esc(r.category)}${r.shared ? '<span class="badge">Haushalt</span>' : ''}${r.thirteenth ? '<span class="badge">13. ML</span>' : ''}
+      return `<tr${ended ? ' class="muted"' : ''}><td>${esc(r.category)}${r.shared ? '<span class="badge">Haushalt</span>' : ''}${R.thirteenthMode(r) !== 'none' ? `<span class="badge">${esc(R.thirteenthLabel(r))}</span>` : ''}
         <div class="muted small">${esc(r.description)}${r.amounts.length > 1 ? `${r.description ? ' · ' : ''}${esc(describeHistory(r))}` : ''}</div></td>
         <td class="num">${r.currency !== 'CHF' ? `${r.currency} ` : 'CHF '}${fmt(R.effectiveAt(r, ended ? r.end : now))}</td>
         <td>${R.intervalLabel(r.interval)}</td><td class="nowrap">${dispDate(r.start)} – ${r.end ? dispDate(r.end) : 'offen'}</td>
@@ -62,7 +68,7 @@ async function adjust(rule) {
     values: { from: today() },
     fields: [
       { name: 'from', label: 'Gültig ab (Stichtag)', type: 'date', required: true },
-      { name: 'amount', label: `Neuer Betrag je Monat/Zahlung${rule.thirteenth ? ' (ohne 13. Monatslohn-Anteil)' : ''}`, type: 'number', step: '0.01', hint: 'ODER Änderung in Prozent' },
+      { name: 'amount', label: `Neuer Betrag je Monat/Zahlung${R.thirteenthMode(rule) !== 'none' ? ' (ohne 13. Monatslohn)' : ''}`, type: 'number', step: '0.01', hint: 'ODER Änderung in Prozent' },
       { name: 'percent', label: 'Änderung in % (z. B. 2.5 oder -3)', type: 'number', step: '0.01' },
       ...(rule.amounts.length > 1 ? [{ name: 'removeLast', label: `Stattdessen die letzte Anpassung (ab ${dispDate(rule.amounts.at(-1).from)}) entfernen`, type: 'checkbox' }] : []),
     ],
@@ -81,7 +87,7 @@ async function editRule(rule) {
   const kind = rule.kind;
   const v = await formDialog({
     title: 'Wiederkehrenden Eintrag bearbeiten',
-    values: { ...rule, category: isKnown(rule.category) ? canonical(rule.category) : rule.category, amount: rule.amounts[0].amount, interval: String(rule.interval), start: rule.start, until: rule.end },
+    values: { ...rule, category: isKnown(rule.category) ? canonical(rule.category) : rule.category, amount: rule.amounts[0].amount, interval: String(rule.interval), start: rule.start, until: rule.end, thirteenth: R.thirteenthMode(rule), t13a: String(rule.t13?.[0] ?? 6), t13b: String(rule.t13?.[1] ?? 12) },
     extra: '<p class="muted small">Der Betrag gilt ab Startdatum. Spätere Erhöhungen erfasst du mit «±». Manuell geänderte Einzelbuchungen bleiben unverändert.</p>',
     fields: [
       { name: 'category', label: 'Kategorie', type: 'select', groups: catGroups(kind, rule.category), required: true },
@@ -93,7 +99,7 @@ async function editRule(rule) {
       { name: 'interval', label: 'Rhythmus', type: 'select', options: R.INTERVAL_OPTIONS.slice(1).some(o => o[0] === String(rule.interval)) ? R.INTERVAL_OPTIONS.slice(1) : [...R.INTERVAL_OPTIONS.slice(1), [String(rule.interval), R.intervalLabel(rule.interval)]] },
       { name: 'start', label: 'Startdatum', type: 'date', required: true },
       { name: 'until', label: 'Ende (optional)', type: 'date' },
-      ...(kind === 'income' ? [{ name: 'thirteenth', label: '13. Monatslohn (Betrag × 13/12)', type: 'checkbox', when: x => x.interval === '1' && R.isSalary('income', (x.custom || '').trim() || x.category) }] : []),
+      ...(kind === 'income' ? thirteenthFormFields(x => x.interval === '1' && R.isSalary('income', (x.custom || '').trim() || x.category)) : []),
       ...(hasHousehold() ? [{ name: 'shared', label: 'Gemeinsam mit Haushalt', type: 'checkbox' }] : []),
     ],
   });
@@ -103,8 +109,9 @@ async function editRule(rule) {
   Object.assign(rule, {
     category: (v.custom || '').trim() || v.category, description: v.description.trim(), currency: v.currency, account: v.account.trim(),
     interval: +v.interval, start: v.start, end: v.until || '',
-    thirteenth: !!v.thirteenth && R.isSalary(kind, (v.custom || '').trim() || v.category) && +v.interval === 1,
+    ...R.thirteenthFields(kind, { category: (v.custom || '').trim() || v.category, interval: +v.interval, thirteenth: v.thirteenth, t13a: v.t13a, t13b: v.t13b }),
   });
+  if (R.thirteenthMode(rule) === 'none') delete rule.t13;
   if (v.shared) rule.shared = true; else delete rule.shared;
   rule.amounts[0] = { from: v.start, amount: Math.abs(+v.amount) };
   rule.amounts = rule.amounts.filter((c, i) => i === 0 || c.from > v.start);

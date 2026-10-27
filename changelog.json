@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.10.0",
+    "date": "2026-10-27",
+    "items": [
+      "13. Monatslohn mit drei Varianten: monatlich anteilig dazugerechnet, halbjährlich je 50 % (zwei frei wählbare Monate) oder einmal jährlich im gewählten Monat",
+      "Excel: Blatt «Wiederkehrend» mit Spalten «13. Monatslohn» (monatlich/halbjährlich/einmalig) und «13. ML Monate»"
+    ]
+  },
+  {
     "version": "0.9.1",
     "date": "2026-10-27",
     "items": [

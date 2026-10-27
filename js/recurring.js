@@ -23,7 +23,36 @@ export function baseAt(rule, date) {
   return a;
 }
 /** Betrag je Buchung: bei 13. Monatslohn wird ein zusätzlicher Monatslohn auf 12 Monate verteilt (×13/12). */
-export const effectiveAt = (rule, date) => round2(baseAt(rule, date) * (rule.thirteenth ? 13 / 12 : 1));
+/** 13. Monatslohn: 'none' | 'monthly' (anteilig ×13/12) | 'half' (2 × 50 %, zwei Monate) | 'once' (1 × 100 %, ein Monat). */
+export const thirteenthMode = r => (r.thirteenth === true ? 'monthly' : r.thirteenth || 'none');
+export const MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+export const thirteenthLabel = r => {
+  const m = thirteenthMode(r), t = r.t13 || [];
+  return m === 'monthly' ? '13. ML anteilig' : m === 'half' ? `13. ML 50 % ${MONTH_NAMES[t[0] - 1]?.slice(0, 3)} + ${MONTH_NAMES[t[1] - 1]?.slice(0, 3)}` : m === 'once' ? `13. ML ${MONTH_NAMES[t[0] - 1]}` : '';
+};
+export const effectiveAt = (rule, date) => round2(baseAt(rule, date) * (thirteenthMode(rule) === 'monthly' ? 13 / 12 : 1));
+
+/** Zusatzzahlungen des 13. Monatslohns (halbjährlich 2 × 50 % bzw. einmalig 100 %) bis und mit `until`. */
+export function extras(rule, until) {
+  const mode = thirteenthMode(rule), months = mode === 'half' ? (rule.t13 || []).slice(0, 2) : mode === 'once' ? (rule.t13 || []).slice(0, 1) : [];
+  if (!months.length || rule.interval !== 1) return [];
+  const out = [], [y0, , d0] = rule.start.split('-').map(Number), yEnd = +until.slice(0, 4);
+  const last = rule.end && rule.end < until ? rule.end : until;
+  for (let y = y0; y <= yEnd; y++) for (const m of months) {
+    const day = Math.min(d0, new Date(y, m, 0).getDate());
+    const date = fmtDate(new Date(y, m - 1, day));
+    if (date < rule.start || date > last) continue;
+    out.push({ date, amount: round2(baseAt(rule, date) * (mode === 'half' ? 0.5 : 1)) });
+  }
+  return out;
+}
+
+/** Alle Buchungen einer Regel: reguläre Fälligkeiten und Zusatzzahlungen (13. Monatslohn). */
+export function entries(rule, until) {
+  const out = occurrences(rule, until).map(date => ({ date, amount: effectiveAt(rule, date), id: `r:${rule.id}:${date}`, skipKey: date, extra: false }));
+  for (const x of extras(rule, until)) out.push({ date: x.date, amount: x.amount, id: `r:${rule.id}:13:${x.date}`, skipKey: `13:${x.date}`, extra: true });
+  return out;
+}
 
 /** Fälligkeitsdaten ab Start bis und mit `until`. Monatsende wird berücksichtigt (31. -> 28./30.). */
 export function occurrences(rule, until) {
@@ -58,11 +87,12 @@ export function materialize(now = today()) {
     const existing = new Map(d[kind].filter(t => t.recId).map(t => [t.id, t]));
     const valid = new Set();
     for (const rule of d.recurring.filter(r => r.kind === kind)) {
-      for (const date of occurrences(rule, now)) {
-        if (rule.skip?.includes(date)) continue;
-        const id = txId(rule, date);
+      for (const e of entries(rule, now)) {
+        const { date, id } = e;
+        if (rule.skip?.includes(e.skipKey)) continue;
         valid.add(id);
-        const want = fields(rule, date), t = existing.get(id);
+        const want = { ...fields(rule, date), amount: e.amount, ...(e.extra ? { description: `${rule.description ? `${rule.description} – ` : ''}13. Monatslohn`, extra13: true } : {}) };
+        const t = existing.get(id);
         if (!t) {
           d[kind].push({ id, recId: rule.id, ...want, ...(rule.shared ? { shared: true } : {}) });
           changed = true;
@@ -109,11 +139,27 @@ function materializeBudget(now) {
   return changed;
 }
 
+/** Normalisiert die 13.-Monatslohn-Angaben (nur bei Lohn und monatlichem Rhythmus). */
+export function thirteenthFields(kind, v) {
+  const mode = isSalary(kind, v.category) && v.interval === 1 ? (v.thirteenth === true ? 'monthly' : v.thirteenth || 'none') : 'none';
+  if (mode === 'half') {
+    const t = [...new Set([+v.t13a, +v.t13b])].filter(m => m >= 1 && m <= 12).sort((a, b) => a - b);
+    if (t.length !== 2) throw new Error('Halbjährlich: zwei verschiedene Auszahlungsmonate wählen.');
+    return { thirteenth: 'half', t13: t };
+  }
+  if (mode === 'once') {
+    const m = +v.t13a;
+    if (!(m >= 1 && m <= 12)) throw new Error('Einmalig: Auszahlungsmonat wählen.');
+    return { thirteenth: 'once', t13: [m] };
+  }
+  return { thirteenth: mode === 'monthly' ? 'monthly' : 'none' };
+}
+
 export function newRule(kind, v) {
   return {
     id: crypto.randomUUID(), kind, category: v.category, description: v.description || '', currency: v.currency || 'CHF',
     account: v.account || '', interval: v.interval, start: v.start, end: v.end || '',
-    thirteenth: !!v.thirteenth && isSalary(kind, v.category) && v.interval === 1,
+    ...thirteenthFields(kind, v),
     amounts: [{ from: v.start, amount: v.amount }], skip: [],
     ...(v.shared ? { shared: true } : {}),
   };
@@ -163,9 +209,9 @@ export function projection(nYears, now = today()) {
     for (const rule of d.recurring || []) {
       const rate = fx.latest(rule.currency);
       if (rate == null) missingFx = true;
-      for (const date of occurrences(rule, span[1])) {
-        if (date < span[0] || date <= now || rule.skip?.includes(date)) continue;
-        add(rule.kind, rule.category, effectiveAt(rule, date) * (rate ?? 0));
+      for (const e of entries(rule, span[1])) {
+        if (e.date < span[0] || e.date <= now || rule.skip?.includes(e.skipKey)) continue;
+        add(rule.kind, rule.category, e.amount * (rate ?? 0));
       }
     }
     // Automatisch gebuchte Budgetpositionen für noch nicht angebrochene Monate
@@ -198,10 +244,10 @@ export function plannedByMonth(months, now = today()) {
   const last = `${months.at(-1)}-31`;
   for (const rule of d.recurring || []) {
     const rate = fx.latest(rule.currency) ?? 0, cat = canonical(rule.category);
-    for (const date of occurrences(rule, last)) {
-      const m = monthOf(date);
-      if (date <= now || rule.skip?.includes(date) || !out[rule.kind].has(m)) continue;
-      add(rule.kind, m, cat, effectiveAt(rule, date) * rate);
+    for (const e of entries(rule, last)) {
+      const m = monthOf(e.date);
+      if (e.date <= now || rule.skip?.includes(e.skipKey) || !out[rule.kind].has(m)) continue;
+      add(rule.kind, m, cat, e.amount * rate);
     }
   }
   const skip = new Set(d.settings.budgetSkip || []);

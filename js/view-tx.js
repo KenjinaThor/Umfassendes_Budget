@@ -171,7 +171,7 @@ export function render(el, kind) {
       for (const m of t.docs || []) await Docs.remove(m);
       if (t.auto === 'budget') skipBudgetEntry(t.category, t.date);
       const rule = t.recId && db().recurring.find(r => r.id === t.recId);
-      if (rule) (rule.skip ||= []).push(t.date);
+      if (rule) (rule.skip ||= []).push(t.extra13 ? `13:${t.date}` : t.date);
       db()[kind] = db()[kind].filter(x => x.id !== t.id); await save(); redraw();
     }
   };
