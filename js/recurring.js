@@ -71,6 +71,7 @@ export function occurrences(rule, until) {
 
 const txId = (rule, date) => `r:${rule.id}:${date}`;
 const fields = (rule, date) => ({
+  ...(rule.assetId ? { assetId: rule.assetId } : {}),
   date, category: rule.category, description: rule.description || '', amount: effectiveAt(rule, date),
   currency: rule.currency, account: rule.account || '',
 });
@@ -98,6 +99,7 @@ export function materialize(now = today()) {
           changed = true;
         } else if (!t.manual) {
           for (const [k, v] of Object.entries(want)) if (t[k] !== v) { t[k] = v; changed = true; }
+          if (!rule.assetId && t.assetId) { delete t.assetId; changed = true; }
           if (!!t.shared !== !!rule.shared) { if (rule.shared) t.shared = true; else delete t.shared; changed = true; }
         }
       }
@@ -162,6 +164,7 @@ export function newRule(kind, v) {
     ...thirteenthFields(kind, v),
     amounts: [{ from: v.start, amount: v.amount }], skip: [],
     ...(v.shared ? { shared: true } : {}),
+    ...(v.assetId ? { assetId: v.assetId } : {}),
   };
 }
 

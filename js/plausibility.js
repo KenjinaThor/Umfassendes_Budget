@@ -10,6 +10,7 @@ const chfOf = t => txChf({ ...t, rate: t.rate ?? fx.latest(t.currency) ?? 1 });
 
 /** rows: {income, expense, assets} aus excel.parse; existing: db(). Gibt Liste von Hinweisen zurück. */
 export function check(rows, existing) {
+  const assetNames = new Set([...(existing.assets || []).map(a => a.name.toLowerCase()), ...rows.assets.filter(r => !r._errors.length).map(r => r.name.toLowerCase())]);
   const issues = [];
   const add = (sheet, r, level, msg) => issues.push({ sheet, row: r?._row ?? null, level, msg });
   const now = today();
@@ -22,6 +23,7 @@ export function check(rows, existing) {
     for (const r of list) for (const e of r._errors) add(sheet, r, 'error', e);
 
     for (const r of valid) {
+      if (r._assetName && !assetNames.has(r._assetName.toLowerCase())) add(sheet, r, 'warn', `Vermögenskonto «${r._assetName}» nicht gefunden – Verknüpfung entfällt`);
       if (r.date > now) add(sheet, r, 'warn', `Datum ${r.date} liegt in der Zukunft`);
       if (r.date < `${new Date().getFullYear() - 10}-01-01`) add(sheet, r, 'warn', `Datum ${r.date} liegt über 10 Jahre zurück`);
       if (r._negated) add(sheet, r, 'warn', 'Negativer Betrag – wird als positiver Betrag übernommen');
@@ -80,7 +82,10 @@ export function check(rows, existing) {
     }
   }
 
-  for (const r of rows.recurring || []) for (const e of r._errors) add('Wiederkehrend', r, 'error', e);
+  for (const r of rows.recurring || []) {
+    for (const e of r._errors) add('Wiederkehrend', r, 'error', e);
+    if (!r._errors.length && r._assetName && !assetNames.has(r._assetName.toLowerCase())) add('Wiederkehrend', r, 'warn', `Vermögenskonto «${r._assetName}» nicht gefunden – Verknüpfung entfällt`);
+  }
   for (const r of rows.budget || []) for (const e of r._errors) add('Budgetplan', r, 'error', e);
 
   for (const r of rows.assets) {

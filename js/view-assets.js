@@ -3,7 +3,7 @@ import { db, save, hasHousehold } from './store.js';
 import * as calc from './calc.js';
 import * as fx from './fx.js';
 import { refreshQuotes } from './market.js';
-import { $, esc, chf, fmt, pct, signed, tone, arrow, uid } from './util.js';
+import { $, esc, chf, fmt, pct, signed, tone, arrow, uid, today } from './util.js';
 import { formDialog, confirmBox, toast } from './ui.js';
 
 const LIQ = ['konto'];
@@ -12,13 +12,15 @@ const INV = ['aktie', 'etf', 'edelmetall'];
 async function edit(a) {
   const v = await formDialog({
     title: a ? 'Position bearbeiten' : 'Neue Vermögensposition',
-    values: a || { type: 'konto', currency: 'CHF', unit: 'oz' },
+    // Beim Bearbeiten eines Kontos wird der aktuelle Stand (inkl. verknüpfter Sparbeiträge) neu als Ausgangsstand per heute gesetzt
+    values: a ? (a.type === 'konto' ? { ...a, qty: Math.round(calc.valuate(a).qty * 100) / 100, balanceDate: today() } : a) : { type: 'konto', currency: 'CHF', unit: 'oz', balanceDate: today() },
     fields: [
       { name: 'type', label: 'Typ', type: 'select', options: Object.entries(calc.TYPE_LABELS) },
       { name: 'name', label: 'Name', required: true },
       { name: 'symbol', label: 'Symbol', only: ['aktie', 'etf', 'edelmetall'], list: ['XAU', 'XAG', 'XPT', 'XPD'], hint: 'Aktie/ETF z. B. NESN, AAPL · Metall: XAU Gold, XAG Silber, XPT Platin, XPD Palladium' },
       { name: 'exchange', label: 'Börse (optional)', only: ['aktie', 'etf'], list: ['SIX', 'XETR', 'NYSE', 'NASDAQ', 'LSE', 'XPAR', 'TSX', 'HKEX', 'SSE', 'SZSE', 'NSE', 'TSE'], hint: 'Börsenkürzel wie bei Twelve Data; Freitext möglich' },
       { name: 'qty', label: 'Menge / Kontostand', type: 'number', step: 'any', required: true },
+      { name: 'balanceDate', label: 'Kontostand gilt per', type: 'date', only: ['konto'], hint: 'Verknüpfte Sparbeiträge ab dem Folgetag erhöhen den Stand automatisch.' },
       { name: 'unit', label: 'Einheit', type: 'select', only: ['edelmetall'], options: [['oz', 'Feinunze (oz)'], ['g', 'Gramm'], ['kg', 'Kilogramm']] },
       { name: 'currency', label: 'Währung (Konto / Einstandspreis)', type: 'select', options: fx.CURRENCIES.map(c => [c, c]) },
       { name: 'costPrice', label: 'Einstandspreis je Einheit', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'] },
@@ -31,7 +33,7 @@ async function edit(a) {
   const num = x => (x === undefined || x === '' ? '' : +x);
   const rec = {
     ...(a || { id: uid() }), type: v.type, name: v.name.trim(), symbol: (v.symbol || '').trim().toUpperCase(),
-    exchange: (v.exchange || '').trim().toUpperCase(), qty: +v.qty, unit: v.unit || '', currency: v.currency,
+    exchange: (v.exchange || '').trim().toUpperCase(), qty: +v.qty, ...(v.type === 'konto' ? { balanceDate: v.balanceDate || today() } : {}), unit: v.unit || '', currency: v.currency,
     costPrice: num(v.costPrice), costFx: num(v.costFx) || undefined, manualPrice: num(v.manualPrice),
   };
   if (v.shared) rec.shared = true; else delete rec.shared;
@@ -68,7 +70,7 @@ export function render(el) {
     const a = r.a, foreign = a.currency !== 'CHF' || (r.priceCur && r.priceCur !== 'CHF');
     return `<tr>
       <td><b>${esc(a.name)}</b>${a.shared ? '<span class="badge">Haushalt</span>' : ''}<div class="muted small">${esc(a.symbol || '')}${a.exchange ? ` · ${esc(a.exchange)}` : ''}</div></td>
-      <td class="num">${fmt(r.qty, a.type === 'konto' ? 2 : 4)}${a.type === 'edelmetall' ? ` ${a.unit}` : ''}</td>
+      <td class="num">${fmt(r.qty, a.type === 'konto' ? 2 : 4)}${a.type === 'edelmetall' ? ` ${a.unit}` : ''}${r.flow?.count ? `<div class="small pos">inkl. +${fmt(r.flow.amount)} aus ${r.flow.count} Sparbeitr${r.flow.count === 1 ? 'ag' : 'ägen'}</div>` : ''}</td>
       <td class="num">${INV.includes(a.type) || a.type === 'andere' ? (a.costPrice === '' ? '–' : `${a.currency} ${fmt(+a.costPrice)}`) : ''}</td>
       <td class="num">${LIQ.includes(a.type) ? '' : price(r)}</td>
       <td class="num">${foreign && r.valueCur != null ? `<div class="muted small">${r.priceCur} ${fmt(r.valueCur)}</div>` : ''}${chf(r.valueChf)}</td>
@@ -106,7 +108,10 @@ export function render(el) {
     const a = db().assets.find(x => x.id === b.dataset.id);
     if (b.dataset.act === 'edit') { if (await edit(a)) render(el); }
     else if (await confirmBox('Position löschen', a.name, 'Löschen', true)) {
-      db().assets = db().assets.filter(x => x.id !== a.id); await save(); render(el);
+      db().assets = db().assets.filter(x => x.id !== a.id);
+      for (const t of db().expense) if (t.assetId === a.id) delete t.assetId;
+      for (const r of db().recurring || []) if (r.assetId === a.id) delete r.assetId;
+      await save(); render(el);
     }
   };
 }

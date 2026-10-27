@@ -7,6 +7,7 @@ import { $, esc, chf, fmt, uid, today, dispDate } from './util.js';
 import { formDialog, confirmBox, toast } from './ui.js';
 import * as RV from './view-recurring.js';
 import * as Docs from './docs.js';
+import { assetField, linkAsset } from './view-link.js';
 import { openDialog, closeDialog } from './ui.js';
 import { intervalLabel } from './recurring.js';
 import { download } from './util.js';
@@ -77,6 +78,7 @@ async function edit(kind, t) {
       { name: 'currency', label: 'Währung', type: 'select', options: fx.CURRENCIES.map(c => [c, c]) },
       { name: 'account', label: 'Konto (optional)' },
       ...(hasHousehold() ? [{ name: 'shared', label: 'Gemeinsam mit Haushalt', type: 'checkbox' }] : []),
+      ...(kind === 'expense' ? assetField() : []),
       { name: 'docbox', type: 'html', html: docBoxHtml(t), when: x => !x.repeat || x.repeat === '0' },
       ...(t?.recId || t?.auto ? [] : RV.repeatFields(kind)),
     ],
@@ -89,6 +91,7 @@ async function edit(kind, t) {
   delete rec.rate;
   if (t?.recId || t?.auto) rec.manual = true; // Einzelanpassung einer automatischen Buchung bleibt bestehen
   if (v.shared) rec.shared = true; else delete rec.shared;
+  if (v.assetId) { rec.assetId = v.assetId; linkAsset(v.assetId); } else delete rec.assetId;
   if (rec.currency !== 'CHF') {
     try { rec.rate = await fx.rateAt(rec.currency, rec.date); } catch { toast('Wechselkurs nicht abrufbar – es wird der letzte bekannte Kurs verwendet.'); }
   }
@@ -142,7 +145,7 @@ export function render(el, kind) {
     ${RV.panelHtml(kind, s.per === 'all' || s.per === 'recAll' ? null : (s.per === 'once' || s.per === 'budget' ? () => false : r => `m${r.interval}` === s.per))}
     ${missingFx ? '<div class="banner">Für einige Fremdwährungen fehlt der Wechselkurs – Summe unvollständig.</div>' : ''}
     <div class="card tablewrap"><table><thead><tr><th>Datum</th><th>Kategorie</th><th>Rhythmus</th><th>Beschreibung</th><th>Konto</th><th class="num">Betrag</th><th class="num">CHF</th><th></th></tr></thead><tbody>
-    ${rows.slice(0, s.shown).map(t => `<tr><td>${dispDate(t.date)}</td><td>${esc(t.category)}${t.recId ? '<span class="badge" title="Automatisch aus wiederkehrendem Eintrag">🔁</span>' : ''}${t.auto && !t.manual ? '<span class="badge" title="Automatisch aus dem Budgetplan">Budget</span>' : ''}${t.shared ? '<span class="badge">Haushalt</span>' : ''}</td><td class="small">${esc(perLabel(perOf(t).key))}</td><td>${esc(t.description)}</td><td>${esc(t.account)}</td>
+    ${rows.slice(0, s.shown).map(t => `<tr><td>${dispDate(t.date)}</td><td>${esc(t.category)}${t.recId ? '<span class="badge" title="Automatisch aus wiederkehrendem Eintrag">🔁</span>' : ''}${t.auto && !t.manual ? '<span class="badge" title="Automatisch aus dem Budgetplan">Budget</span>' : ''}${t.assetId && db().assets.find(a => a.id === t.assetId) ? `<span class="badge" title="Erhöht den Kontostand">→ ${esc(db().assets.find(a => a.id === t.assetId).name)}</span>` : ''}${t.shared ? '<span class="badge">Haushalt</span>' : ''}</td><td class="small">${esc(perLabel(perOf(t).key))}</td><td>${esc(t.description)}</td><td>${esc(t.account)}</td>
       <td class="num">${t.currency !== 'CHF' ? `${t.currency} ${fmt(t.amount)}` : ''}</td><td class="num">${chf(calc.txChf(t))}</td>
       <td class="num nowrap">${t.docs?.length ? `<button class="icon" data-act="docs" data-id="${t.id}" title="Dokumente" aria-label="Dokumente">📎${t.docs.length}</button>` : ''}<button class="icon" data-act="edit" data-id="${t.id}" aria-label="Bearbeiten">✎</button><button class="icon" data-act="del" data-id="${t.id}" aria-label="Löschen">✕</button></td></tr>`).join('')
       || '<tr><td colspan="8" class="muted">Keine Buchungen im gewählten Zeitraum.</td></tr>'}

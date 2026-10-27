@@ -5,6 +5,7 @@ import { groupsFor, isKnown, canonical } from './categories.js';
 import { CURRENCIES } from './fx.js';
 import { esc, chf, fmt, dispDate, today, signed } from './util.js';
 import { formDialog, confirmBox, openDialog, closeDialog, toast } from './ui.js';
+import { assetField, linkAsset } from './view-link.js';
 
 const catGroups = (kind, current) => {
   const g = groupsFor(kind).map(x => [x.name, x.positions.map(p => p.name)]);
@@ -30,9 +31,10 @@ export const repeatFields = kind => [
 export async function createFromForm(kind, v, original) {
   const rule = R.newRule(kind, {
     category: (v.custom || '').trim() || v.category, description: v.description.trim(), amount: Math.abs(+v.amount), currency: v.currency,
-    account: v.account.trim(), interval: +v.repeat, start: v.date, end: v.until || '', thirteenth: v.thirteenth, t13a: v.t13a, t13b: v.t13b, shared: !!v.shared,
+    account: v.account.trim(), interval: +v.repeat, start: v.date, end: v.until || '', thirteenth: v.thirteenth, t13a: v.t13a, t13b: v.t13b, shared: !!v.shared, assetId: v.assetId || '',
   });
   if (rule.end && rule.end < rule.start) throw new Error('«Wiederholen bis» liegt vor dem Startdatum.');
+  if (rule.assetId) linkAsset(rule.assetId);
   db().recurring.push(rule);
   if (original) db()[kind] = db()[kind].filter(t => t.id !== original.id); // wird als erste Fälligkeit neu erzeugt
   R.materialize();
@@ -49,7 +51,7 @@ export function panelHtml(kind, pred) {
     <div class="tablewrap"><table><thead><tr><th>Kategorie</th><th class="num">Betrag aktuell</th><th>Rhythmus</th><th>Zeitraum</th><th></th></tr></thead><tbody>
     ${rules.map(r => {
       const ended = r.end && r.end < now;
-      return `<tr${ended ? ' class="muted"' : ''}><td>${esc(r.category)}${r.shared ? '<span class="badge">Haushalt</span>' : ''}${R.thirteenthMode(r) !== 'none' ? `<span class="badge">${esc(R.thirteenthLabel(r))}</span>` : ''}
+      return `<tr${ended ? ' class="muted"' : ''}><td>${esc(r.category)}${r.shared ? '<span class="badge">Haushalt</span>' : ''}${r.assetId && db().assets.find(a => a.id === r.assetId) ? `<span class="badge" title="Erhöht den Kontostand">→ ${esc(db().assets.find(a => a.id === r.assetId).name)}</span>` : ''}${R.thirteenthMode(r) !== 'none' ? `<span class="badge">${esc(R.thirteenthLabel(r))}</span>` : ''}
         <div class="muted small">${esc(r.description)}${r.amounts.length > 1 ? `${r.description ? ' · ' : ''}${esc(describeHistory(r))}` : ''}</div></td>
         <td class="num">${r.currency !== 'CHF' ? `${r.currency} ` : 'CHF '}${fmt(R.effectiveAt(r, ended ? r.end : now))}</td>
         <td>${R.intervalLabel(r.interval)}</td><td class="nowrap">${dispDate(r.start)} – ${r.end ? dispDate(r.end) : 'offen'}</td>
@@ -100,6 +102,7 @@ async function editRule(rule) {
       { name: 'start', label: 'Startdatum', type: 'date', required: true },
       { name: 'until', label: 'Ende (optional)', type: 'date' },
       ...(kind === 'income' ? thirteenthFormFields(x => x.interval === '1' && R.isSalary('income', (x.custom || '').trim() || x.category)) : []),
+      ...(kind === 'expense' ? assetField() : []),
       ...(hasHousehold() ? [{ name: 'shared', label: 'Gemeinsam mit Haushalt', type: 'checkbox' }] : []),
     ],
   });
@@ -113,6 +116,7 @@ async function editRule(rule) {
   });
   if (R.thirteenthMode(rule) === 'none') delete rule.t13;
   if (v.shared) rule.shared = true; else delete rule.shared;
+  if (v.assetId) { rule.assetId = v.assetId; linkAsset(v.assetId); } else delete rule.assetId;
   rule.amounts[0] = { from: v.start, amount: Math.abs(+v.amount) };
   rule.amounts = rule.amounts.filter((c, i) => i === 0 || c.from > v.start);
   if (oldStart !== v.start) rule.skip = [];

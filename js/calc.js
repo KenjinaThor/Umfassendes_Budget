@@ -74,9 +74,20 @@ export function monthlySeries(n) {
   return { keys, income: agg(db().income), expense: agg(opex()) };
 }
 
+/** Einzahlungen aus verknüpften Ausgaben (Sparbeiträge) seit dem Stand-Datum des Kontos, in Kontowährung. */
+export function linkedFlow(a, now = fmtDate(new Date())) {
+  const from = a.balanceDate || '0000-00-00';
+  const cur = a.currency || 'CHF', rate = cur === 'CHF' ? 1 : fx.latest(cur);
+  if (!rate) return { amount: 0, count: 0, since: from, missingFx: true };
+  let amount = 0, count = 0;
+  for (const t of db().expense) if (t.assetId === a.id && t.date > from && t.date <= now) { amount += txChf(t) / rate; count++; }
+  return { amount: Math.round(amount * 100) / 100, count, since: from };
+}
+
 /** Bewertung einer Vermögensposition. Alle Werte in CHF und in der jeweiligen Währung. */
 export function valuate(a) {
-  const qty = Number(a.qty) || 0;
+  const flow = a.type === 'konto' ? linkedFlow(a) : { amount: 0, count: 0 };
+  const qty = (Number(a.qty) || 0) + flow.amount;
   const cur = a.currency || 'CHF';
   let price = null, priceCur = cur, prev = null;
 
@@ -108,7 +119,7 @@ export function valuate(a) {
   const dayPct = price != null && prev ? ((price - prev) / prev) * 100 : null;
 
   return {
-    a, qty, price, priceCur, valueCur: price != null ? qty * price : null,
+    a, qty, flow, price, priceCur, valueCur: price != null ? qty * price : null,
     valueChf, costChf, pnlChf, pnlPct, dayChf, dayPct,
     needsFx: price != null && rPrice == null,
     stale: a.quote ? a.quote.date : null,

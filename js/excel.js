@@ -7,8 +7,8 @@ import { isSalary, thirteenthMode } from './recurring.js';
 import { hasHousehold } from './store.js';
 import { INCOME_GROUPS, EXPENSE_GROUPS, SAVINGS_GROUPS, canonical, isKnown } from './categories.js';
 
-const TX_COLS = ['Datum', 'Kategorie', 'Beschreibung', 'Betrag', 'Währung', 'Konto', 'Gemeinsam'];
-const AS_COLS = ['Typ', 'Name', 'Symbol', 'Börse', 'Menge', 'Einheit', 'Einstandspreis', 'Währung', 'Wechselkurs bei Kauf', 'Manueller Kurs', 'Gemeinsam'];
+const TX_COLS = ['Datum', 'Kategorie', 'Beschreibung', 'Betrag', 'Währung', 'Konto', 'Gemeinsam', 'Vermögenskonto'];
+const AS_COLS = ['Typ', 'Name', 'Symbol', 'Börse', 'Menge', 'Einheit', 'Einstandspreis', 'Währung', 'Wechselkurs bei Kauf', 'Manueller Kurs', 'Gemeinsam', 'Kontostand per'];
 const TYPE_BY_LABEL = Object.fromEntries(
   Object.entries(TYPE_LABELS).flatMap(([k, v]) => [[v.toLowerCase(), k], [k, k]]).concat([['etf', 'etf'], ['fonds', 'etf']])
 );
@@ -33,6 +33,7 @@ function help() {
     ['  «Anpassungen»: Erhöhungen ab Stichtag als «JJJJ-MM-TT:Betrag; JJJJ-MM-TT:Betrag» (Lohn-/Prämienerhöhung).'],
     ['  «Automatisch buchen» = ja: der Sollbetrag wird ab «Ab Monat» (JJJJ-MM) jeden Monat automatisch als Buchung übernommen; manuell erfasste Buchungen in dieser Kategorie ersetzen den Automatik-Betrag des Monats.'],
     ['Blatt «Budgetplan»: Spalte «Betrag monatlich (CHF)» ausfüllen = geplanter Monatsbetrag je Position (Soll). Leer = kein Budget.'],
+    ['Spalte «Vermögenskonto» (Einnahmen/Ausgaben/Wiederkehrend): Name eines Kontos aus dem Blatt «Vermögen» – Ausgabe erhöht dessen Kontostand (Sparbeitrag). Blatt «Vermögen», Spalte «Kontostand per»: Datum, bis zu dem Buchungen im Kontostand enthalten sind.'],
     ['Blatt «Vermögen»: je Zeile eine Position.'],
     ['  Typ: Konto, Aktie, ETF, Edelmetall oder Andere.'],
     ['  Konto: Menge = Kontostand, Währung = Kontowährung.'],
@@ -65,24 +66,25 @@ function budgetRows(settings = {}) {
   return rows;
 }
 
-const REC_COLS = ['Art', 'Kategorie', 'Beschreibung', 'Betrag', 'Währung', 'Konto', 'Start', 'Ende', 'Intervall (Monate)', '13. Monatslohn', '13. ML Monate', 'Gemeinsam', 'Anpassungen'];
-const recRows = (list = []) => list.map(r => [
+const REC_COLS = ['Art', 'Kategorie', 'Beschreibung', 'Betrag', 'Währung', 'Konto', 'Start', 'Ende', 'Intervall (Monate)', '13. Monatslohn', '13. ML Monate', 'Gemeinsam', 'Anpassungen', 'Vermögenskonto'];
+const recRows = (list = [], assets = []) => list.map(r => [
   r.kind === 'income' ? 'Einnahme' : 'Ausgabe', r.category, r.description || '', r.amounts[0].amount, r.currency, r.account || '', r.start, r.end || '',
-  r.interval, { monthly: 'monatlich', half: 'halbjährlich', once: 'einmalig' }[thirteenthMode(r)] || '', (r.t13 || []).join(', '), r.shared ? 'ja' : '', r.amounts.slice(1).map(c => `${c.from}:${c.amount}`).join('; '),
+  r.interval, { monthly: 'monatlich', half: 'halbjährlich', once: 'einmalig' }[thirteenthMode(r)] || '', (r.t13 || []).join(', '), r.shared ? 'ja' : '', r.amounts.slice(1).map(c => `${c.from}:${c.amount}`).join('; '), assets.find(a => a.id === r.assetId)?.name || '',
 ]);
 
 function workbook(d) {
-  const tx = l => l.map(t => [t.date, t.category, t.description || '', t.amount, t.currency, t.account || '', t.shared ? 'ja' : '']);
+  const an = id => d.assets.find(a => a.id === id)?.name || '';
+  const tx = l => l.map(t => [t.date, t.category, t.description || '', t.amount, t.currency, t.account || '', t.shared ? 'ja' : '', an(t.assetId)]);
   const as = l => l.map(a => [
     TYPE_LABELS[a.type], a.name, a.symbol || '', a.exchange || '', a.qty, a.unit || '',
-    a.costPrice ?? '', a.currency, a.costFx ?? '', a.manualPrice ?? '', a.shared ? 'ja' : '',
+    a.costPrice ?? '', a.currency, a.costFx ?? '', a.manualPrice ?? '', a.shared ? 'ja' : '', a.balanceDate || '',
   ]);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.income), [12, 20, 36, 12, 9, 18, 11]), 'Einnahmen');
+  XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.income), [12, 20, 36, 12, 9, 18, 11, 22]), 'Einnahmen');
   XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.expense), [12, 20, 36, 12, 9, 18, 11]), 'Ausgaben');
-  XLSX.utils.book_append_sheet(wb, sheet(AS_COLS, as(d.assets), [12, 28, 12, 10, 12, 8, 15, 9, 20, 14, 11]), 'Vermögen');
+  XLSX.utils.book_append_sheet(wb, sheet(AS_COLS, as(d.assets), [12, 28, 12, 10, 12, 8, 15, 9, 20, 14, 11, 14]), 'Vermögen');
   XLSX.utils.book_append_sheet(wb, sheet(BUDGET_COLS, budgetRows(d.settings), [12, 38, 52, 22, 40, 18, 12]), 'Budgetplan');
-  XLSX.utils.book_append_sheet(wb, sheet(REC_COLS, recRows(d.recurring), [10, 34, 30, 12, 9, 16, 12, 12, 18, 16, 14, 11, 40]), 'Wiederkehrend');
+  XLSX.utils.book_append_sheet(wb, sheet(REC_COLS, recRows(d.recurring, d.assets), [10, 34, 30, 12, 9, 16, 12, 12, 18, 16, 14, 11, 40, 22]), 'Wiederkehrend');
   XLSX.utils.book_append_sheet(wb, help(), 'Anleitung');
   return wb;
 }
@@ -139,7 +141,7 @@ function parseTx(rows) {
     return {
       id: uid(), _row: i + 2, _errors: errors, _negated: negated, _noCategory: !str(r.kategorie),
       date, category: canonical(str(r.kategorie)) || 'Unkategorisiert', description: str(r.beschreibung),
-      amount, currency, account: str(r.konto), ...(isYes(r.gemeinsam) && hasHousehold() ? { shared: true } : {}),
+      amount, currency, account: str(r.konto), _assetName: str(r['vermögenskonto']), ...(isYes(r.gemeinsam) && hasHousehold() ? { shared: true } : {}),
     };
   }).filter(r => !(r.date === null && Number.isNaN(r.amount) && !r.description && r._noCategory)); // Leerzeilen
 }
@@ -167,7 +169,7 @@ function parseAssets(rows) {
     return {
       id: uid(), _row: i + 2, _errors: errors, type, name, symbol, exchange: str(r['börse']).toUpperCase(),
       qty, unit, currency, costPrice: opt(r.einstandspreis), costFx: opt(r['wechselkurs bei kauf']) || undefined,
-      manualPrice: opt(r['manueller kurs']), ...(isYes(r.gemeinsam) && hasHousehold() ? { shared: true } : {}),
+      manualPrice: opt(r['manueller kurs']), ...(type === 'konto' && parseDate(r['kontostand per']) ? { balanceDate: parseDate(r['kontostand per']) } : {}), ...(isYes(r.gemeinsam) && hasHousehold() ? { shared: true } : {}),
     };
   }).filter(r => r.name || r._errors.length > 1);
 }
@@ -204,7 +206,7 @@ function parseRecurring(rows) {
     }
     const interv = errors.length ? 1 : interval;
     out.push({
-      _row: i + 2, _errors: errors, id: uid(), kind, category, description: str(r.beschreibung), currency, account: str(r.konto),
+      _row: i + 2, _errors: errors, id: uid(), kind, category, description: str(r.beschreibung), currency, account: str(r.konto), _assetName: str(r['vermögenskonto']),
       interval: interv, start, end: end || '', ...(thirteenth !== 'none' && isSalary(kind, category) && interv === 1 ? { thirteenth, ...(t13.length ? { t13 } : {}) } : { thirteenth: 'none' }),
       amounts: [{ from: start, amount }, ...changes.filter(c => c.from > start).sort((a, b) => a.from.localeCompare(b.from))], skip: [],
       ...(isYes(r.gemeinsam) && hasHousehold() ? { shared: true } : {}),

@@ -39,21 +39,25 @@ async function importFile(file, onDone) {
     const keep = r => !r._errors.length && !(skipDup && r._dup);
     const clean = r => { const o = { ...r }; for (const k of Object.keys(o)) if (k.startsWith('_')) delete o[k]; return o; };
     const dbx = db();
+    for (const r of rows.assets.filter(keep)) {
+      const o = clean(r);
+      const ex = dbx.assets.find(a => a.type === o.type && a.name.toLowerCase() === o.name.toLowerCase() && (a.symbol || '') === o.symbol);
+      if (ex) Object.assign(ex, { ...o, id: ex.id, quote: ex.quote, prevClose: ex.prevClose });
+      else { if (o.type === 'konto' && !o.balanceDate) o.balanceDate = today(); dbx.assets.push(o); }
+    }
+    const idOf = n => (n ? dbx.assets.find(a => a.type === 'konto' && a.name.toLowerCase() === n.toLowerCase())?.id : undefined);
     for (const k of ['income', 'expense']) {
       for (const r of rows[k].filter(keep)) {
         const o = clean(r);
+        if (k === 'expense' && idOf(r._assetName)) o.assetId = idOf(r._assetName);
         try { if (o.currency !== 'CHF') o.rate = await fx.rateAt(o.currency, o.date); } catch { /* letzter Kurs als Fallback */ }
         dbx[k].push(o);
       }
     }
-    for (const r of rows.assets.filter(keep)) {
-      const o = clean(r);
-      const ex = dbx.assets.find(a => a.type === o.type && a.name.toLowerCase() === o.name.toLowerCase() && (a.symbol || '') === o.symbol);
-      if (ex) Object.assign(ex, { ...o, id: ex.id, quote: ex.quote, prevClose: ex.prevClose }); else dbx.assets.push(o);
-    }
     dbx.recurring ||= [];
     for (const r of (rows.recurring || []).filter(keep)) {
       const o = clean(r);
+      if (o.kind === 'expense' && idOf(r._assetName)) o.assetId = idOf(r._assetName);
       const ex = dbx.recurring.find(x => x.kind === o.kind && x.category === o.category && x.description === o.description && x.start === o.start);
       if (ex) Object.assign(ex, { ...o, id: ex.id, skip: ex.skip }); else dbx.recurring.push(o);
     }
