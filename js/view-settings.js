@@ -190,8 +190,8 @@ export async function render(el, { lock, rerender, applyName }) {
     }));
   }
 
-  $('#x-export', el).onclick = () => download(`Budget_${today()}.xlsx`, excel.exportData(db()), XLSX_MIME);
-  $('#x-template', el).onclick = () => download('Budget_Vorlage.xlsx', excel.exportTemplate(), XLSX_MIME);
+  $('#x-export', el).onclick = async () => download(`Budget_${today()}.xlsx`, await excel.exportData(db()), XLSX_MIME);
+  $('#x-template', el).onclick = async () => download('Budget_Vorlage.xlsx', await excel.exportTemplate(), XLSX_MIME);
   $('#x-import', el).onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f, rerender); };
 
   $('#s-name', el).onchange = async e => { s.appName = e.target.value.trim() || 'Umfassendes Budget'; applyName(s.appName); await save(); toast('Gespeichert'); };

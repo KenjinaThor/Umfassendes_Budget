@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.11.1",
+    "date": "2026-10-27",
+    "items": [
+      "Excel-Vorlage und Export: Dropdown-Listen für Kategorie, Währung, Typ, Ja/Nein, Rhythmus u. a. (Auswahlpfeil in den Spalten)",
+      "Neue Blätter «Kategorien» (alle Kategorien nach Gruppen mit Hinweisen) und «Listen» (Quellen der Auswahllisten)"
+    ]
+  },
+  {
     "version": "0.11.0",
     "date": "2026-10-27",
     "items": [

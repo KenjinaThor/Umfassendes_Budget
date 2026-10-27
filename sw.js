@@ -5,7 +5,7 @@ const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'changelog.json', 'css/app.css',
   'vendor/chart.umd.js', 'vendor/xlsx.full.min.js', 'vendor/supabase.js', 'js/config.js', 'js/passkey.js',
   'js/app.js', 'js/util.js', 'js/crypto.js', 'js/store.js', 'js/fx.js', 'js/market.js',
-  'js/calc.js', 'js/plausibility.js', 'js/excel.js', 'js/ui.js', 'js/update.js',
+  'js/calc.js', 'js/plausibility.js', 'js/excel.js', 'js/xlsxfix.js', 'js/ui.js', 'js/update.js',
   'js/dashboard.js', 'js/view-tx.js', 'js/view-assets.js', 'js/view-budget.js', 'js/view-link.js', 'js/docs.js', 'js/budget.js', 'js/view-plan.js', 'js/recurring.js', 'js/view-recurring.js', 'js/categories.js', 'js/view-settings.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
 ];

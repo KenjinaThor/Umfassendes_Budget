@@ -3,6 +3,7 @@ import { CURRENCIES } from './fx.js';
 import { TYPE_LABELS } from './calc.js';
 import { METAL_SYMBOLS } from './market.js';
 import { uid, today } from './util.js';
+import { addValidations } from './xlsxfix.js';
 import { isSalary, thirteenthMode } from './recurring.js';
 import { hasHousehold } from './store.js';
 import { INCOME_GROUPS, EXPENSE_GROUPS, SAVINGS_GROUPS, canonical, isKnown } from './categories.js';
@@ -33,6 +34,7 @@ function help() {
     ['  «Anpassungen»: Erhöhungen ab Stichtag als «JJJJ-MM-TT:Betrag; JJJJ-MM-TT:Betrag» (Lohn-/Prämienerhöhung).'],
     ['  «Automatisch buchen» = ja: der Sollbetrag wird ab «Ab Monat» (JJJJ-MM) jeden Monat automatisch als Buchung übernommen; manuell erfasste Buchungen in dieser Kategorie ersetzen den Automatik-Betrag des Monats.'],
     ['Blatt «Budgetplan»: Spalte «Betrag monatlich (CHF)» ausfüllen = geplanter Monatsbetrag je Position (Soll). Leer = kein Budget.'],
+    ['Dropdown-Listen: Kategorie, Währung, Typ, Ja/Nein usw. lassen sich in den Spalten per Auswahlpfeil wählen. Alle gültigen Kategorien stehen zusätzlich im Blatt «Kategorien» (nach Gruppen), die Quellen der Auswahllisten im Blatt «Listen». Eigene Kategorien sind erlaubt (Warnung beim Eintippen).'],
     ['Spalte «Vermögenskonto» (Einnahmen/Ausgaben/Wiederkehrend): Name eines Kontos aus dem Blatt «Vermögen» – Ausgabe erhöht dessen Kontostand (Sparbeitrag). Blatt «Vermögen», Spalte «Kontostand per»: Datum, bis zu dem Buchungen im Kontostand enthalten sind.'],
     ['Blatt «Vermögen»: je Zeile eine Position.'],
     ['  Typ: Konto, Aktie, ETF, Edelmetall oder Andere.'],
@@ -72,6 +74,40 @@ const recRows = (list = [], assets = []) => list.map(r => [
   r.interval, { monthly: 'monatlich', half: 'halbjährlich', once: 'einmalig' }[thirteenthMode(r)] || '', (r.t13 || []).join(', '), r.shared ? 'ja' : '', r.amounts.slice(1).map(c => `${c.from}:${c.amount}`).join('; '), assets.find(a => a.id === r.assetId)?.name || '',
 ]);
 
+const colLetter = i => String.fromCharCode(65 + i);
+
+/** Blatt «Listen» (Quellen der Dropdowns) und die zugehörigen Zellbereiche. */
+function listsSheet(d) {
+  const customs = kind => [...new Set((d[kind] || []).map(t => t.category).filter(c => c && !isKnown(c)))].sort();
+  const names = gs => gs.flatMap(g => g.positions.map(p => p.name));
+  const inc = [...names(INCOME_GROUPS), ...customs('income')];
+  const exp = [...names(EXPENSE_GROUPS), ...names(SAVINGS_GROUPS), ...customs('expense')];
+  const cols = {
+    inc: ['Einnahmen-Kategorien', inc], exp: ['Ausgaben-Kategorien', exp], all: ['Alle Kategorien', [...new Set([...inc, ...exp])]],
+    cur: ['Währungen', CURRENCIES], type: ['Vermögenstypen', Object.values(TYPE_LABELS)], unit: ['Einheiten', ['oz', 'g', 'kg']],
+    yn: ['Ja/Nein', ['ja', 'nein']], art: ['Art', ['Einnahme', 'Ausgabe']], t13: ['13. Monatslohn', ['monatlich', 'halbjährlich', 'einmalig']],
+    iv: ['Intervall (Monate)', [...Array.from({ length: 12 }, (_, i) => i + 1), 24, 36, 60]],
+  };
+  const keys = Object.keys(cols), height = Math.max(...keys.map(k => cols[k][1].length));
+  const aoa = [keys.map(k => cols[k][0])];
+  for (let r = 0; r < height; r++) aoa.push(keys.map(k => cols[k][1][r] ?? ''));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = keys.map(k => ({ wch: k === 'all' || k === 'exp' || k === 'inc' ? 52 : 16 }));
+  const range = {};
+  keys.forEach((k, i) => { range[k] = `Listen!$${colLetter(i)}$2:$${colLetter(i)}$${cols[k][1].length + 1}`; });
+  return { ws, range };
+}
+
+/** Blatt «Kategorien»: lesbare Übersicht aller Kategorien mit Gruppe und Hinweis. */
+function categoriesSheet() {
+  const rows = [];
+  const add = (bereich, groups, numbered) => groups.forEach((g, n) => g.positions.forEach(p => rows.push([bereich, `${numbered ? `${n + 1}. ` : ''}${g.name}`, p.name, p.hint || ''])));
+  add('Einnahmen', INCOME_GROUPS, false); add('Ausgaben', EXPENSE_GROUPS, true); add('Vorsorge & Vermögensaufbau', SAVINGS_GROUPS, false);
+  const ws = XLSX.utils.aoa_to_sheet([['Bereich', 'Gruppe', 'Kategorie (so in Spalte «Kategorie» eintragen)', 'Hinweis'], ...rows]);
+  ws['!cols'] = [{ wch: 26 }, { wch: 40 }, { wch: 56 }, { wch: 44 }];
+  return ws;
+}
+
 function workbook(d) {
   const an = id => d.assets.find(a => a.id === id)?.name || '';
   const tx = l => l.map(t => [t.date, t.category, t.description || '', t.amount, t.currency, t.account || '', t.shared ? 'ja' : '', an(t.assetId)]);
@@ -81,18 +117,36 @@ function workbook(d) {
   ]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.income), [12, 20, 36, 12, 9, 18, 11, 22]), 'Einnahmen');
-  XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.expense), [12, 20, 36, 12, 9, 18, 11]), 'Ausgaben');
+  XLSX.utils.book_append_sheet(wb, sheet(TX_COLS, tx(d.expense), [12, 20, 36, 12, 9, 18, 11, 22]), 'Ausgaben');
   XLSX.utils.book_append_sheet(wb, sheet(AS_COLS, as(d.assets), [12, 28, 12, 10, 12, 8, 15, 9, 20, 14, 11, 14]), 'Vermögen');
   XLSX.utils.book_append_sheet(wb, sheet(BUDGET_COLS, budgetRows(d.settings), [12, 38, 52, 22, 40, 18, 12]), 'Budgetplan');
   XLSX.utils.book_append_sheet(wb, sheet(REC_COLS, recRows(d.recurring, d.assets), [10, 34, 30, 12, 9, 16, 12, 12, 18, 16, 14, 11, 40, 22]), 'Wiederkehrend');
   XLSX.utils.book_append_sheet(wb, help(), 'Anleitung');
-  return wb;
+  XLSX.utils.book_append_sheet(wb, categoriesSheet(), 'Kategorien');
+  const { ws, range } = listsSheet(d);
+  XLSX.utils.book_append_sheet(wb, ws, 'Listen');
+
+  // Dropdown-Listen (Datenüberprüfung). Kategorien: Warnung statt Sperre, damit eigene Kategorien möglich bleiben.
+  const R = 2000, assetNames = `Vermögen!$B$2:$B$${R}`;
+  const list = (col, formula1, strict = true, error) => ({ sqref: `${col}2:${col}${R}`, type: 'list', formula1, strict, error });
+  const amount = col => ({ sqref: `${col}2:${col}${R}`, type: 'decimal', formula1: '0', strict: true, title: 'Ungültiger Betrag', error: 'Bitte eine positive Zahl eintragen.' });
+  const specs = {
+    Einnahmen: [list('B', range.inc, false, 'Kategorie nicht in der Liste – wird als eigene Kategorie übernommen.'), amount('D'), list('E', range.cur), list('G', range.yn), list('H', assetNames, false)],
+    Ausgaben: [list('B', range.exp, false, 'Kategorie nicht in der Liste – wird als eigene Kategorie übernommen.'), amount('D'), list('E', range.cur), list('G', range.yn), list('H', assetNames, false)],
+    'Vermögen': [list('A', range.type), list('F', range.unit), list('H', range.cur), list('K', range.yn)],
+    Budgetplan: [list('F', range.yn)],
+    Wiederkehrend: [list('A', range.art), list('B', range.all, false, 'Kategorie nicht in der Liste – wird als eigene Kategorie übernommen.'), amount('D'), list('E', range.cur), list('I', range.iv, true, 'Intervall in Monaten wählen (12 = jährlich).'), list('J', range.t13), list('L', range.yn), list('N', assetNames, false)],
+  };
+  return { wb, specs };
 }
 
-const toBytes = wb => XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+const build = async d => {
+  const { wb, specs } = workbook(d);
+  return addValidations(new Uint8Array(XLSX.write(wb, { bookType: 'xlsx', type: 'array' })), specs);
+};
 // Automatisch erzeugte Buchungen werden nicht exportiert; sie entstehen beim Import aus «Wiederkehrend» neu.
-export const exportData = d => toBytes(workbook({ ...d, income: d.income.filter(t => !t.recId && !(t.auto && !t.manual)), expense: d.expense.filter(t => !t.recId && !(t.auto && !t.manual)), settings: d.settings }));
-export const exportTemplate = () => toBytes(workbook({ income: [], expense: [], assets: [] }));
+export const exportData = d => build({ ...d, income: d.income.filter(t => !t.recId && !(t.auto && !t.manual)), expense: d.expense.filter(t => !t.recId && !(t.auto && !t.manual)), settings: d.settings });
+export const exportTemplate = () => build({ income: [], expense: [], assets: [] });
 
 // ---------- Import ----------
 const norm = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k.toString().trim().toLowerCase(), v]));
