@@ -23,6 +23,9 @@ Läuft als **PWA** auf Android, iOS und Windows – ohne App-Store, direkt aus G
 ## Updates
 Ein Push auf `main` deployt automatisch. Die App holt beim Start immer die neueste Version (Service Worker, Netzwerk zuerst) und lädt sich selbst neu. Danach erscheint ein Dialog mit den Neuerungen aus `changelog.json` – **bei jedem Release dort oben einen Eintrag mit neuer Versionsnummer ergänzen.**
 
+## Dokumente
+Zu Einnahmen und Ausgaben lassen sich Belege anhängen (PDF, Fotos, Word/Excel, bis 5 Dateien à 10 MB). Jedes Dokument wird im Browser mit einem eigenen Schlüssel verschlüsselt; der Server (Supabase Storage, Einrichtung: `supabase/storage.sql`) speichert nur Chiffretext. Im Lokal-Modus liegen sie verschlüsselt in der IndexedDB. Dokumente sind nicht Teil des Excel-Exports.
+
 ## Excel
 *Einstellungen → Excel*: Export (alle Daten), **leere Vorlage**, Import. Beim Import läuft eine Plausibilitätsprüfung (Formatfehler, Duplikate, Ausreisser je Kategorie, Monatsabweichungen, fehlende Dauerposten, Zukunftsdaten …) mit Bestätigungsdialog.
 

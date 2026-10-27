@@ -31,6 +31,7 @@ function fieldHtml(f, v) {
   const val = v ?? f.value ?? '';
   const only = f.only ? ` data-only="${f.only.join(' ')}"` : '';
   const req = f.required ? ' required' : '';
+  if (f.type === 'html') return `<div class="field full" data-f="${f.name}"${only}>${f.html}</div>`;
   if (f.type === 'checkbox') return `<label class="field check" data-f="${f.name}"${only}><input type="checkbox" name="${f.name}" value="1"${v ? ' checked' : ''}><span>${esc(f.label)}</span></label>`;
   let input;
   if (f.type === 'select' && f.groups) {
@@ -76,7 +77,10 @@ export function formDialog({ title, fields, values = {}, submit = 'Speichern', e
     form.addEventListener('change', applyWhen);
     apply(); applyWhen(); applyWhen();
     form.addEventListener('submit', e => {
-      if (e.submitter?.value === 'ok') res(Object.fromEntries(new FormData(form)));
+      if (e.submitter?.value !== 'ok') return;
+      const vals = Object.fromEntries(new FormData(form));
+      for (const inp of form.querySelectorAll('input[type=file]')) if (!inp.disabled) vals[inp.name] = [...inp.files];
+      res(vals);
     });
     d.addEventListener('close', () => res(null), { once: true });
   });

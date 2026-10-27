@@ -6,6 +6,9 @@ import { groupsFor, isKnown, canonical, isSavings } from './categories.js';
 import { $, esc, chf, fmt, uid, today, dispDate } from './util.js';
 import { formDialog, confirmBox, toast } from './ui.js';
 import * as RV from './view-recurring.js';
+import * as Docs from './docs.js';
+import { openDialog, closeDialog } from './ui.js';
+import { download } from './util.js';
 import { skipBudget as skipBudgetEntry } from './budget.js';
 
 const groups = (kind, extra, current) => {
@@ -16,6 +19,31 @@ const groups = (kind, extra, current) => {
 const CFG = { income: { title: 'Einnahmen' }, expense: { title: 'Ausgaben' } };
 const PAGE = 150;
 const state = { income: { period: 'm0', q: '', shown: PAGE }, expense: { period: 'm0', q: '', shown: PAGE } };
+
+const docBoxHtml = t => `<div class="docbox"><b>📎 Dokumente</b> <span class="muted small">(optional, max. ${Docs.MAX_DOCS}, je max. ${Docs.MAX_BYTES / 1048576} MB – verschlüsselt gespeichert)</span>
+  ${(t?.docs || []).map(d => `<label class="check"><input type="checkbox" name="rmdoc_${esc(d.id)}"><span>${esc(d.name)} (${Docs.sizeLabel(d.size)}) entfernen</span></label>`).join('')}
+  <input type="file" name="newdocs" multiple accept="${Docs.ACCEPT}"></div>`;
+
+async function showDocs(t) {
+  const urls = [];
+  const d = openDialog(`<div class="form"><h2>Dokumente</h2><ul class="doclist">${t.docs.map(x => `<li><span>📎 ${esc(x.name)} <span class="muted small">(${Docs.sizeLabel(x.size)})</span></span>
+    <span class="row">${x.mime.startsWith('image/') ? `<button class="btn" data-dact="view" data-did="${esc(x.id)}">Ansehen</button>` : ''}<button class="btn" data-dact="dl" data-did="${esc(x.id)}">Herunterladen</button></span></li>`).join('')}</ul>
+    <div id="docview"></div><div class="actions"><button class="btn primary" id="doc-close">Schliessen</button></div></div>`);
+  d.querySelector('#doc-close').onclick = closeDialog;
+  d.addEventListener('close', () => urls.forEach(u => URL.revokeObjectURL(u)), { once: true });
+  d.onclick = async e => {
+    const b = e.target.closest('[data-dact]');
+    if (!b) return;
+    const meta = t.docs.find(x => x.id === b.dataset.did);
+    b.disabled = true;
+    try {
+      const blob = await Docs.get(meta);
+      if (b.dataset.dact === 'dl') download(meta.name, blob, meta.mime);
+      else { const u = URL.createObjectURL(blob); urls.push(u); d.querySelector('#docview').innerHTML = `<img class="docimg" alt="${esc(meta.name)}" src="${u}">`; }
+    } catch (err) { toast(err.message); }
+    b.disabled = false;
+  };
+}
 
 async function edit(kind, t) {
   const cats = [...new Set(db()[kind].map(x => x.category))].filter(c => !isKnown(c)).sort();
@@ -31,6 +59,7 @@ async function edit(kind, t) {
       { name: 'currency', label: 'Währung', type: 'select', options: fx.CURRENCIES.map(c => [c, c]) },
       { name: 'account', label: 'Konto (optional)' },
       ...(hasHousehold() ? [{ name: 'shared', label: 'Gemeinsam mit Haushalt', type: 'checkbox' }] : []),
+      { name: 'docbox', type: 'html', html: docBoxHtml(t), when: x => !x.repeat || x.repeat === '0' },
       ...(t?.recId || t?.auto ? [] : RV.repeatFields(kind)),
     ],
   });
@@ -45,6 +74,20 @@ async function edit(kind, t) {
   if (rec.currency !== 'CHF') {
     try { rec.rate = await fx.rateAt(rec.currency, rec.date); } catch { toast('Wechselkurs nicht abrufbar – es wird der letzte bekannte Kurs verwendet.'); }
   }
+  // Dokumente: Entfernte löschen, neue verschlüsselt hochladen
+  const removed = (t?.docs || []).filter(d => v[`rmdoc_${d.id}`]);
+  const kept = (t?.docs || []).filter(d => !v[`rmdoc_${d.id}`]);
+  const files = (v.newdocs || []).filter(f => f.size > 0);
+  if (kept.length + files.length > Docs.MAX_DOCS) { toast(`Maximal ${Docs.MAX_DOCS} Dokumente pro Buchung.`); return false; }
+  const added = [];
+  if (files.length) {
+    toast('Dokumente werden verschlüsselt und hochgeladen…', 8000);
+    try { for (const f of files) added.push(await Docs.put(f)); }
+    catch (err) { for (const m of added) await Docs.remove(m); toast(err.message); return false; }
+  }
+  const all = [...kept, ...added];
+  if (all.length) rec.docs = all; else delete rec.docs;
+  for (const m of removed) await Docs.remove(m);
   const list = db()[kind];
   const i = list.findIndex(x => x.id === rec.id);
   if (i >= 0) list[i] = rec; else list.push(rec);
@@ -75,7 +118,7 @@ export function render(el, kind) {
     <div class="card tablewrap"><table><thead><tr><th>Datum</th><th>Kategorie</th><th>Beschreibung</th><th>Konto</th><th class="num">Betrag</th><th class="num">CHF</th><th></th></tr></thead><tbody>
     ${rows.slice(0, s.shown).map(t => `<tr><td>${dispDate(t.date)}</td><td>${esc(t.category)}${t.recId ? '<span class="badge" title="Automatisch aus wiederkehrendem Eintrag">🔁</span>' : ''}${t.auto && !t.manual ? '<span class="badge" title="Automatisch aus dem Budgetplan">Budget</span>' : ''}${t.shared ? '<span class="badge">Haushalt</span>' : ''}</td><td>${esc(t.description)}</td><td>${esc(t.account)}</td>
       <td class="num">${t.currency !== 'CHF' ? `${t.currency} ${fmt(t.amount)}` : ''}</td><td class="num">${chf(calc.txChf(t))}</td>
-      <td class="num nowrap"><button class="icon" data-act="edit" data-id="${t.id}" aria-label="Bearbeiten">✎</button><button class="icon" data-act="del" data-id="${t.id}" aria-label="Löschen">✕</button></td></tr>`).join('')
+      <td class="num nowrap">${t.docs?.length ? `<button class="icon" data-act="docs" data-id="${t.id}" title="Dokumente" aria-label="Dokumente">📎${t.docs.length}</button>` : ''}<button class="icon" data-act="edit" data-id="${t.id}" aria-label="Bearbeiten">✎</button><button class="icon" data-act="del" data-id="${t.id}" aria-label="Löschen">✕</button></td></tr>`).join('')
       || '<tr><td colspan="7" class="muted">Keine Buchungen im gewählten Zeitraum.</td></tr>'}
     </tbody></table></div>
     ${rows.length > s.shown ? `<button class="btn" id="more">Mehr anzeigen (${rows.length - s.shown})</button>` : ''}`;
@@ -94,8 +137,10 @@ export function render(el, kind) {
     const b = e.target.closest('[data-act]');
     if (!b) return;
     const t = db()[kind].find(x => x.id === b.dataset.id);
+    if (b.dataset.act === 'docs') { await showDocs(t); return; }
     if (b.dataset.act === 'edit') { if (await edit(kind, t)) redraw(); }
     else if (await confirmBox('Buchung löschen', `${dispDate(t.date)} · ${t.category} · ${chf(calc.txChf(t))}${t.recId ? ' – nur dieser Eintrag, der wiederkehrende Eintrag bleibt bestehen.' : ''}${t.auto ? ' – nur dieser Monat, die Budget-Automatik bleibt bestehen.' : ''}`, 'Löschen', true)) {
+      for (const m of t.docs || []) await Docs.remove(m);
       if (t.auto === 'budget') skipBudgetEntry(t.category, t.date);
       const rule = t.recId && db().recurring.find(r => r.id === t.recId);
       if (rule) (rule.skip ||= []).push(t.date);

@@ -54,7 +54,9 @@ export const db = () => data;
 export const isUnlocked = () => !!data;
 export const hasHousehold = () => !!st.hh;
 export const householdInfo = () => (st.hh ? { id: st.hh.id, members: st.hh.members } : null);
-export const account = () => ({ email: st.email, displayName: st.displayName });
+export const account = () => ({ email: st.email, displayName: st.displayName, userId: st.userId });
+export const storageApi = () => getSb().storage.from('docs');
+export const ensureOnline = () => ensureSession();
 
 const stable = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
   ? Object.fromEntries(Object.keys(x).sort().map(key => [key, x[key]])) : x));
