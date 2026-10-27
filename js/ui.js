@@ -51,7 +51,7 @@ export function formDialog({ title, fields, values = {}, submit = 'Speichern', e
   return new Promise(res => {
     const d = openDialog(`<form method="dialog" class="form"><h2>${esc(title)}</h2>
       <div class="grid2">${fields.map(f => fieldHtml(f, values[f.name])).join('')}</div>${extra}
-      <div class="actions"><button value="cancel" class="btn ghost" formnovalidate>Abbrechen</button>
+      <div class="actions"><button type="button" value="cancel" class="btn ghost" data-cancel>Abbrechen</button>
       <button value="ok" class="btn primary">${esc(submit)}</button></div></form>`);
     const form = d.querySelector('form');
     const typeSel = form.elements.type;
@@ -76,6 +76,8 @@ export function formDialog({ title, fields, values = {}, submit = 'Speichern', e
     form.addEventListener('input', applyWhen);
     form.addEventListener('change', applyWhen);
     apply(); applyWhen(); applyWhen();
+    // «Abbrechen» ist kein Submit-Button, damit die Eingabetaste (impliziter Submit) speichert statt abzubrechen
+    form.querySelector('[data-cancel]').onclick = () => d.close('cancel');
     form.addEventListener('submit', e => {
       if (e.submitter?.value !== 'ok') return;
       const vals = Object.fromEntries(new FormData(form));
