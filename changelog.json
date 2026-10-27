@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.8.2",
+    "date": "2026-10-27",
+    "items": [
+      "Budgetplan zeigt auch künftige Monate: geplante Buchungen aus wiederkehrenden Einträgen (z. B. Lohn bis 31.12.) und der Budget-Automatik erscheinen im Ist («davon geplant»)",
+      "Jahresbudget: neue Standardansicht «Prognose» (Buchungen + geplante Einträge)"
+    ]
+  },
+  {
     "version": "0.8.1",
     "date": "2026-10-27",
     "items": [

@@ -189,17 +189,32 @@ export function projection(nYears, now = today()) {
   return { years: out, missingFx };
 }
 
-/** Noch nicht gebuchte, geplante Einnahmen aus wiederkehrenden Einträgen je Monat (Kategorie -> CHF). */
-export function futureIncomeByMonth(months, now = today()) {
-  const out = new Map(months.map(m => [m, new Map()]));
-  for (const rule of (db().recurring || []).filter(r => r.kind === 'income')) {
-    const rate = fx.latest(rule.currency) ?? 0;
-    for (const date of occurrences(rule, `${months.at(-1)}-31`)) {
+/** Noch nicht gebuchte, geplante Beträge je Monat (Kategorie -> CHF): Fälligkeiten wiederkehrender Einträge nach heute
+ *  und automatisch zu buchende Budgetpositionen künftiger Monate. */
+export function plannedByMonth(months, now = today()) {
+  const d = db();
+  const out = { income: new Map(months.map(m => [m, new Map()])), expense: new Map(months.map(m => [m, new Map()])) };
+  const add = (kind, m, cat, chf) => { const mm = out[kind].get(m); mm.set(cat, (mm.get(cat) || 0) + chf); };
+  const last = `${months.at(-1)}-31`;
+  for (const rule of d.recurring || []) {
+    const rate = fx.latest(rule.currency) ?? 0, cat = canonical(rule.category);
+    for (const date of occurrences(rule, last)) {
       const m = monthOf(date);
-      if (date <= now || rule.skip?.includes(date) || !out.has(m)) continue;
-      const k = canonical(rule.category);
-      out.get(m).set(k, (out.get(m).get(k) || 0) + effectiveAt(rule, date) * rate);
+      if (date <= now || rule.skip?.includes(date) || !out[rule.kind].has(m)) continue;
+      add(rule.kind, m, cat, effectiveAt(rule, date) * rate);
+    }
+  }
+  const skip = new Set(d.settings.budgetSkip || []);
+  for (const [name, cfg] of Object.entries(d.settings.budgetAuto || {})) {
+    if ((lookup(name)?.kind ?? cfg.kind ?? 'expense') === 'income') continue;
+    for (const m of months) {
+      if (m < cfg.from || `${m}-01` <= now || skip.has(`${name}|${m}`)) continue;
+      const amt = sollAt(name, m);
+      const present = d.expense.some(t => canonical(t.category) === name && monthOf(t.date) === m) || out.expense.get(m).has(name);
+      if (amt > 0 && !present) add('expense', m, name, amt);
     }
   }
   return out;
 }
+
+export const futureIncomeByMonth = (months, now) => plannedByMonth(months, now).income;
