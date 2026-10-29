@@ -75,6 +75,7 @@ function renderYear(el) {
   const diffView = yview === 'diff';
   const cellOf = (v, good) => {
     if (!v || Math.abs(v) < 0.005) return '<td class="num"></td>';
+    if (diffView && good === false) return `<td class="num neg">${arrow(v)} ${signed(v)}</td>`; // Ausgaben: rot, Pfeil nach Richtung
     return `<td class="num${diffView ? ` ${tone(good ? v : -v)}` : ''}">${diffView ? signed(v) : fmt(v, 0)}</td>`;
   };
   const line = (label, v, good, cls = '') => `<tr class="${cls}"><td>${esc(label)}</td>${v.map(x => cellOf(x, good)).join('')}${cellOf(sum(v), good).replace('<td class="num', '<td class="num yr')}</tr>`;
@@ -148,10 +149,12 @@ function renderMonth(el) {
   const extraIncome = sum(incG.flatMap(g => g.rows).filter(r => EXTRA_INCOME.has(r.name) || r.custom), r => r.ist);
   const incNote = extraIncome ? `davon Lohn ${fmt(tI.ist - extraIncome)} + Zusatzeinkommen ${fmt(extraIncome)} (Dividenden, Nebeneinkünfte …)` : '';
 
-  // Ausgaben: Ist über Soll = schlecht; Einnahmen/Vorsorge: Ist unter Soll = schlecht
+  // Ausgaben werden immer rot dargestellt, der Pfeil zeigt die Richtung der Abweichung (▼ unter Plan, ▲ über Plan);
+  // Einnahmen/Vorsorge: Ist unter Soll = schlecht (rot), darüber gut (grün)
   const diff = (s, i, goodWhenHigher) => {
     if (!s && !i) return '<td class="num"></td>';
     const d = i - s;
+    if (goodWhenHigher === false) return `<td class="num neg">${arrow(d)} ${signed(d)}</td>`;
     return `<td class="num ${tone(goodWhenHigher ? d : -d)}">${arrow(goodWhenHigher ? d : -d)} ${signed(d)}</td>`;
   };
   const num = v => (v ? fmt(v) : '');

@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.12.2",
+    "date": "2026-10-29",
+    "items": [
+      "Budgetplan: Abweichung bei Ausgaben wird immer rot dargestellt; der Pfeil zeigt die Richtung (▼ unter Plan, ▲ über Plan)"
+    ]
+  },
+  {
     "version": "0.12.1",
     "date": "2026-10-29",
     "items": [
