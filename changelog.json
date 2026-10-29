@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.12.3",
+    "date": "2026-10-29",
+    "items": [
+      "Grafiken Planung und Dashboard (Einnahmen vs. Ausgaben): Ausgaben (und Vorsorge) werden auf der Minusseite unter der Nulllinie dargestellt"
+    ]
+  },
+  {
     "version": "0.12.2",
     "date": "2026-10-29",
     "items": [

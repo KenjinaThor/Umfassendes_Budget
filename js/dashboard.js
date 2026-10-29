@@ -89,8 +89,8 @@ function chartCfg(w) {
       const s = calc.monthlySeries(12);
       return { type: 'bar', data: { labels: s.keys.map(monthLabel), datasets: [
         { label: 'Einnahmen', data: s.income, backgroundColor: INCOME },
-        { label: 'Ausgaben', data: s.expense, backgroundColor: EXPENSE },
-      ] }, options: { ...base, plugins: { ...base.plugins, tooltip }, scales: { x: axes, y: { ...axes, ticks: { ...axes.ticks, callback: money } } } } };
+        { label: 'Ausgaben', data: s.expense.map(v => -v), backgroundColor: EXPENSE }, // Ausgaben ins Negative
+      ] }, options: { ...base, plugins: { ...base.plugins, tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y < 0 ? '–' : ''}CHF ${fmt(Math.abs(c.parsed.y))}` } } }, scales: { x: { ...axes, stacked: true }, y: { ...axes, stacked: true, grid: { color: c => (c.tick && c.tick.value === 0 ? cssVar('--text-2') : grid), lineWidth: c => (c.tick && c.tick.value === 0 ? 2 : 1) }, ticks: { ...axes.ticks, callback: money } } } } };
     }
     case 'chart-expense-cat':
     case 'chart-income-cat': {
