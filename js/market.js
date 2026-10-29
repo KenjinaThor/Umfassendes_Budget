@@ -54,9 +54,25 @@ export async function refreshQuotes(assets, apiKey) {
       // Vortageskurs: vom Anbieter, sonst letzter Kurs eines früheren Tages
       if (a.quote && a.quote.date !== t) a.prevClose = { date: a.quote.date, price: a.quote.price };
       a.quote = { ...q, date: t, ts: Date.now() };
+      delete a.quoteError;
     } catch (e) {
       errors.push(`${a.name}: ${e.message}`);
+      a.quoteError = e.message;
     }
   }
   return errors;
+}
+
+/** Prüft Symbol/Börse über die Supabase-Funktion, ohne etwas zu speichern. Gibt {ok, text} zurück. */
+export async function checkSymbol(symbol, exchange) {
+  if (!store.isCloud) return { ok: false, text: 'Die Kursprüfung braucht den Cloud-Modus (Supabase-Funktion «quotes»).' };
+  if (!String(symbol || '').trim()) return { ok: false, text: 'Bitte zuerst ein Symbol eintragen.' };
+  try {
+    const r = await store.callFunction('quotes', { items: [{ id: 'check', symbol, exchange }] });
+    const q = r?.quotes?.check;
+    if (q?.price != null) return { ok: true, text: `✓ Gefunden: ${q.name || q.symbol || symbol} – ${q.currency || ''} ${q.price.toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}${q.symbol ? ` (Yahoo: ${q.symbol})` : ''}` };
+    return { ok: false, text: `✗ ${q?.error || 'Kein Kurs gefunden'} – Symbol und Börse prüfen (z. B. NESN + SIX oder NESN.SW)` };
+  } catch (e) {
+    return { ok: false, text: `✗ ${e.message}` };
+  }
 }

@@ -2,7 +2,7 @@
 import { db, save, hasHousehold } from './store.js';
 import * as calc from './calc.js';
 import * as fx from './fx.js';
-import { refreshQuotes } from './market.js';
+import { refreshQuotes, checkSymbol } from './market.js';
 import { $, esc, chf, fmt, pct, signed, tone, arrow, uid, today, dispDate } from './util.js';
 import { formDialog, confirmBox, toast, openDialog, closeDialog } from './ui.js';
 
@@ -22,6 +22,7 @@ async function edit(a) {
       { name: 'costValue', label: 'Einstandswert (Kaufbetrag gesamt)', type: 'number', step: 'any', only: ['aktie', 'etf', 'andere'], when: x => x.mode === 'value', hint: 'Daraus ergibt sich Gewinn/Verlust in CHF und Prozent.' },
       { name: 'symbol', label: 'Symbol', only: ['aktie', 'etf', 'edelmetall'], when: x => x.mode !== 'value', list: ['XAU', 'XAG', 'XPT', 'XPD'], hint: 'Aktie/ETF z. B. NESN, AAPL · Metall: XAU Gold, XAG Silber, XPT Platin, XPD Palladium' },
       { name: 'exchange', label: 'Börse (optional)', only: ['aktie', 'etf'], when: x => x.mode !== 'value', list: ['SIX', 'XETR', 'NYSE', 'NASDAQ', 'LSE', 'XPAR', 'TSX', 'HKEX', 'SSE', 'SZSE', 'NSE', 'TSE'], hint: 'Börsenkürzel wie bei Twelve Data; Freitext möglich' },
+      { name: 'symcheck', type: 'html', only: ['aktie', 'etf'], when: x => x.mode !== 'value', html: '<button type="button" class="btn" id="chk-sym">Kurs prüfen</button> <span id="chk-out" class="small"></span>' },
       { name: 'qty', label: 'Menge / Kontostand', type: 'number', step: 'any', required: true, when: x => !(x.mode === 'value' && ['aktie', 'etf', 'andere'].includes(x.type)) },
       { name: 'balanceDate', label: 'Kontostand gilt per', type: 'date', only: ['konto'], hint: 'Verknüpfte Sparbeiträge ab dem Folgetag erhöhen den Stand automatisch.' },
       { name: 'unit', label: 'Einheit', type: 'select', only: ['edelmetall'], options: [['oz', 'Feinunze (oz)'], ['g', 'Gramm'], ['kg', 'Kilogramm']] },
@@ -101,9 +102,9 @@ export function render(el) {
   const p = calc.portfolio();
   const groups = [['Konten & Bargeld', LIQ], ['Aktien & ETFs', ['aktie', 'etf']], ['Edelmetalle', ['edelmetall']], ['Andere', ['andere']]];
   const price = r => {
-    if (r.price == null) return '<span class="muted">kein Kurs</span>';
+    if (r.price == null) return `<span class="muted">kein Kurs</span>${r.a.quoteError ? `<div class="small neg">${esc(r.a.quoteError)}</div>` : ''}`;
     const mt = r.a.type === 'edelmetall' ? `/${r.a.unit}` : '';
-    const note = r.priceSource === 'cost' ? '<div class="small warnc">Einstand – kein Kurs</div>' : r.priceSource === 'manual' ? `<div class="small muted">manuell${r.a.manualDate ? ` · ${dispDate(r.a.manualDate)}` : ''}</div>` : '';
+    const note = r.priceSource === 'cost' ? `<div class="small warnc">Einstand – kein Kurs${r.a.quoteError ? `: ${esc(r.a.quoteError)}` : ''}</div>` : r.priceSource === 'manual' ? `<div class="small muted">manuell${r.a.manualDate ? ` · ${dispDate(r.a.manualDate)}` : ''}</div>` : '';
     return `${r.priceCur} ${fmt(r.price, r.price < 10 ? 4 : 2)}${mt}${note}`;
   };
   const row = r => {
@@ -157,3 +158,14 @@ export function render(el) {
     }
   };
 }
+
+// «Kurs prüfen» im Formular: Symbol und Börse testen, bevor gespeichert wird
+document.addEventListener('click', async e => {
+  const btn = e.target.closest('#chk-sym');
+  if (!btn) return;
+  const form = btn.closest('form'), out = form.querySelector('#chk-out');
+  btn.disabled = true; out.className = 'small muted'; out.textContent = 'Prüfe…';
+  const r = await checkSymbol(form.elements.symbol?.value, form.elements.exchange?.value);
+  out.textContent = r.text; out.className = `small ${r.ok ? 'pos' : 'neg'}`;
+  btn.disabled = false;
+});

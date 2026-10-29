@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.14.1",
+    "date": "2026-10-29",
+    "items": [
+      "Vermögen: «Kurs prüfen» im Formular testet Symbol und Börse sofort (zeigt Name und Kurs oder den Grund)",
+      "Liste zeigt bei Positionen ohne Kurs den Grund der letzten Aktualisierung (z. B. «Symbol nicht gefunden»)"
+    ]
+  },
+  {
     "version": "0.14.0",
     "date": "2026-10-29",
     "items": [
