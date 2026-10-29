@@ -5,7 +5,10 @@ import { INCOME_GROUPS, EXPENSE_GROUPS, SAVINGS_GROUPS, isKnown, canonical } fro
 import { sollAt, setSoll, setAuto, autoCfg } from './budget.js';
 import { materialize, plannedByMonth } from './recurring.js';
 import { lookup } from './categories.js';
-import { $, esc, chf, fmt, signed, tone, arrow, monthKey, monthLabel, sum } from './util.js';
+import { $, esc, chf, fmt, signed, tone, arrow, monthKey, monthLabel, sum, today } from './util.js';
+
+// Zusatzeinkommen (neben dem normalen Lohn); wird mit dem Lohn zum Total Einnahmen addiert
+const EXTRA_INCOME = new Set(['Alimenten / Unterhaltszahlungen', 'Renditen / Dividenden aus Anlagen', 'Nebeneinkünfte / Geschenke / Sonstiges']);
 
 let month = monthKey(new Date().toISOString());
 let mode = 'month';           // 'month' | 'year'
@@ -46,7 +49,7 @@ function renderYear(el) {
   const val = (name, m, act, kind) => {
     if (kind === 'income') return act.get(m).get(name) || 0; // Einnahmen: kein Soll
     const sl = sollAt(name, m), is = exp.get(m).get(name) || 0, ip = expP.get(m).get(name) || 0;
-    return yview === 'soll' ? sl : yview === 'ist' ? is : yview === 'prognose' ? ip : ip - sl;
+    return yview === 'soll' ? sl : yview === 'ist' ? is : yview === 'prognose' ? (m >= today().slice(0, 7) ? Math.max(ip, sl) : ip) : ip - sl;
   };
   // Zeilen je Gruppe (Positionen mit Daten, bei «leere anzeigen» alle)
   const build = (groups, act, kind) => {
@@ -79,7 +82,7 @@ function renderYear(el) {
     ${gs.map((g, n) => `<tr class="group"><td colspan="14">${title === 'AUSGABEN' ? `${n + 1}. ` : ''}${esc(g.name)}</td></tr>${g.rows.map(r => line(r.name, r.v, good)).join('')}`).join('')}
     ${line(totalLabel, total, good, 'total')}`;
   const years = [...new Set([year - 1, year, year + 1, year + 2, year + 3, +monthKey(new Date().toISOString()).slice(0, 4)])].sort();
-  const label = { prognose: 'Prognose = erfasste Buchungen + geplante wiederkehrende Einträge und Budget-Automatik', soll: 'Soll (Budget)', ist: 'Ist (nur erfasste Buchungen)', diff: 'Abweichung Prognose – Soll' }[yview];
+  const label = { prognose: 'Prognose = erfasste Buchungen + geplante Einträge; in laufenden/künftigen Monaten zählt das Budget als Ausgabe, soweit nicht höher gebucht', soll: 'Soll (Budget)', ist: 'Ist (nur erfasste Buchungen)', diff: 'Abweichung Prognose – Soll' }[yview];
 
   el.innerHTML = `
     <div class="pagehead"><h1>Budgetplan</h1>${modeTabs()}</div>
@@ -117,27 +120,33 @@ function renderMonth(el) {
   const incPlan = planned.income.get(month), expPlan = planned.expense.get(month); // noch nicht gebucht (wiederkehrend / Budget-Automatik)
   const auto = autoCfg();
   const soll = n => sollAt(n, month);
+  const isPast = month < today().slice(0, 7);
 
   // Gruppe -> Zeilen und Summen. Nicht im Plan enthaltene Kategorien erscheinen unter «Weitere Positionen».
   const build = (groups, act, kind) => {
     const pm = kind === 'income' ? incPlan : expPlan;
     const known = new Set(groups.flatMap(g => g.positions.map(p => p.name)));
-    const row = p => ({ name: p.name, hint: p.hint, soll: soll(p.name), ist: (act.get(p.name) || 0) + (pm.get(p.name) || 0), plan: pm.get(p.name) || 0 });
+    // «wirksam»: laufender/künftiger Monat = höherer Wert aus Ist und Soll (offenes Budget gilt als Ausgabe), vergangener Monat = Ist
+    const eff = (ist, sl) => (kind === 'income' || isPast ? ist : Math.max(ist, sl));
+    const row = p => { const ist = (act.get(p.name) || 0) + (pm.get(p.name) || 0), sl = soll(p.name); return { name: p.name, hint: p.hint, soll: sl, ist, plan: pm.get(p.name) || 0, eff: eff(ist, sl) }; };
     const out = groups.map(g => ({ name: g.name, savings: g.savings, rows: g.positions.map(row) }));
     const keys = new Set([...act.keys(), ...pm.keys()]);
     const extra = [...keys].filter(k => !known.has(k) && !(kind === 'expense' && SAVINGS_GROUPS.some(g => g.positions.some(p => p.name === k))));
-    if (extra.length && kind !== 'savings') out.push({ name: 'Weitere Positionen', rows: extra.map(k => ({ name: k, soll: soll(k), ist: (act.get(k) || 0) + (pm.get(k) || 0), plan: pm.get(k) || 0, custom: true, kind })) });
-    for (const g of out) { g.soll = sum(g.rows, x => x.soll); g.ist = sum(g.rows, x => x.ist); }
+    if (extra.length && kind !== 'savings') out.push({ name: 'Weitere Positionen', rows: extra.map(k => { const ist = (act.get(k) || 0) + (pm.get(k) || 0), sl = soll(k); return { name: k, soll: sl, ist, plan: pm.get(k) || 0, custom: true, kind, eff: eff(ist, sl) }; }) });
+    for (const g of out) { g.soll = sum(g.rows, x => x.soll); g.ist = sum(g.rows, x => x.ist); g.eff = sum(g.rows, x => x.eff); }
     return out;
   };
   const incG = build(INCOME_GROUPS, inc, 'income');
   const expG = build(EXPENSE_GROUPS, exp, 'expense');
   const savG = build(SAVINGS_GROUPS, exp, 'savings');
 
-  const tot = gs => ({ soll: sum(gs, g => g.soll), ist: sum(gs, g => g.ist) });
+  const tot = gs => ({ soll: sum(gs, g => g.soll), ist: sum(gs, g => g.ist), eff: sum(gs, g => g.eff) });
   const tI = tot(incG), tE = tot(expG), tS = tot(savG);
-  const free = { soll: tI.soll - tE.soll, ist: tI.ist - tE.ist };
-  const rest = { soll: free.soll - tS.soll, ist: free.ist - tS.ist };
+  // Freies Einkommen / Restbetrag: Einnahmen (Ist, inkl. Zusatzeinkommen) abzüglich Ausgaben bzw. Sparrate
+  const free = { soll: tI.ist - tE.soll, ist: tI.ist - tE.ist, eff: tI.ist - tE.eff };
+  const rest = { soll: free.soll - tS.soll, ist: free.ist - tS.ist, eff: free.eff - tS.eff };
+  const extraIncome = sum(incG.flatMap(g => g.rows).filter(r => EXTRA_INCOME.has(r.name) || r.custom), r => r.ist);
+  const incNote = extraIncome ? `davon Lohn ${fmt(tI.ist - extraIncome)} + Zusatzeinkommen ${fmt(extraIncome)} (Dividenden, Nebeneinkünfte …)` : '';
 
   // Ausgaben: Ist über Soll = schlecht; Einnahmen/Vorsorge: Ist unter Soll = schlecht
   const diff = (s, i, goodWhenHigher) => {
@@ -160,11 +169,12 @@ function renderMonth(el) {
     <td class="num">${num(p.ist)}${planNote(p)}</td>${diff(p.soll, p.ist, hi)}</tr>`;
   };
   const sumRow = (label, s, i, hi, cls = 'sub') => `<tr class="${cls}"><td>${esc(label)}</td><td class="num">${fmt(s.soll ?? s)}</td><td></td><td class="num">${fmt(s.ist ?? i)}</td>${diff(s.soll ?? s, s.ist ?? i, hi)}</tr>`;
-  const incRow = (label, v, cls = 'sub') => `<tr class="${cls}"><td>${esc(label)}</td><td></td><td></td><td class="num">${fmt(v)}</td><td></td></tr>`;
+  const incRow = (label, v, cls = 'sub', note = '') => `<tr class="${cls}"><td>${esc(label)}${note ? `<div class="small muted">${esc(note)}</div>` : ''}</td><td></td><td></td><td class="num">${fmt(v)}</td><td></td></tr>`;
+  const calcRow = (label, s, i, cls, note = '') => `<tr class="${cls}"><td>${esc(label)}${note ? `<div class="small muted">${esc(note)}</div>` : ''}</td><td class="num">${fmt(s)}</td><td></td><td class="num">${fmt(i)}</td>${diff(s, i, true)}</tr>`;
   const section = (title, gs, hi, totalLabel, t, kindOf = 'expense') => `<tr class="head"><td colspan="5">${esc(title)}</td></tr>
     ${gs.map((g, n) => `<tr class="group"><td colspan="5">${title === 'AUSGABEN' ? `${n + 1}. ` : ''}${esc(g.name)}</td></tr>${g.rows.map(p => posRow(p, hi, kindOf)).join('')}
       ${gs.length > 1 || title === 'EINNAHMEN' ? (kindOf === 'income' ? incRow(`Zwischentotal ${g.name}`, g.ist) : sumRow(`Zwischentotal ${g.name}`, g, 0, hi)) : ''}`).join('')}
-    ${kindOf === 'income' ? incRow(totalLabel, t.ist, 'total') : sumRow(totalLabel, t, 0, hi, 'total')}`;
+    ${kindOf === 'income' ? incRow(totalLabel, t.ist, 'total', incNote) : sumRow(totalLabel, t, 0, hi, 'total')}`;
 
   el.innerHTML = `
     <div class="pagehead"><h1>Budgetplan</h1>${modeTabs()}
@@ -176,9 +186,11 @@ function renderMonth(el) {
       <tbody>
       ${section('EINNAHMEN', incG, true, 'Total Einnahmen', tI, 'income')}
       ${section('AUSGABEN', expG, false, 'TOTAL AUSGABEN', tE)}
-      ${incRow('FREIES EINKOMMEN (Einnahmen – Ausgaben)', free.ist, 'total big')}
+      ${calcRow('FREIES EINKOMMEN (Einnahmen – Ausgaben)', free.soll, free.ist, 'total big', 'Soll = Einnahmen – Soll-Ausgaben · Ist = Einnahmen – erfasste Ausgaben')}
+      ${isPast ? '' : incRow('PROGNOSE FREIES EINKOMMEN', free.eff, 'total big', 'Einnahmen – Ausgaben, wobei noch nicht gebuchtes Budget als Ausgabe zählt')}
       ${section('VORSORGE & VERMÖGENSAUFBAU', savG, true, 'Total Spar- & Vorsorgerate', tS)}
-      ${incRow('RESTBETRAG / PUFFER NACH SPARRATE', rest.ist, 'total big')}
+      ${calcRow('RESTBETRAG / PUFFER NACH SPARRATE', rest.soll, rest.ist, 'total big', 'nach Abzug der Ausgaben und der Spar- & Vorsorgerate')}
+      ${isPast ? '' : incRow('PROGNOSE RESTBETRAG', rest.eff, 'total big', 'inkl. offenem Budget für Ausgaben und Sparrate')}
       </tbody></table></div>
     <p class="muted small">Beträge in CHF. Die Excel-Vorlage enthält dasselbe Blatt «Budgetplan» zum Ausfüllen und Importieren.</p>`;
 
