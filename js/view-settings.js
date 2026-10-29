@@ -132,7 +132,7 @@ export async function render(el, { lock, rerender, applyName }) {
       </div></section>
 
     <section class="card"><h2>Marktdaten</h2>
-      <p class="muted">Aktien/ETFs: kostenloser API-Schlüssel von <b>twelvedata.com</b>. Edelmetalle und Wechselkurse benötigen keinen Schlüssel. Der Schlüssel wird nur verschlüsselt gespeichert.</p>
+      <p class="muted">Aktien/ETFs: kostenloser API-Schlüssel von <b>twelvedata.com</b>. Edelmetalle und Wechselkurse benötigen keinen Schlüssel. Achtung: Im Gratis-Tarif von Twelve Data sind meist nur US-Börsen enthalten; Schweizer Titel (SIX) und andere Börsen können einen bezahlten Tarif erfordern. Für solche Positionen und für Fonds die Erfassung «Nur Wert» oder einen manuellen Kurs verwenden. Der Schlüssel wird nur verschlüsselt gespeichert.</p>
       <label class="field"><span>Twelve-Data-API-Schlüssel</span><input id="s-key" type="password" autocomplete="off" value="${esc(s.twelveDataKey)}"></label></section>
 
     <section class="card"><h2>Sicherheit & Backup</h2>

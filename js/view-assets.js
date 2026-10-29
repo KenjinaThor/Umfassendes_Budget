@@ -3,7 +3,7 @@ import { db, save, hasHousehold } from './store.js';
 import * as calc from './calc.js';
 import * as fx from './fx.js';
 import { refreshQuotes } from './market.js';
-import { $, esc, chf, fmt, pct, signed, tone, arrow, uid, today } from './util.js';
+import { $, esc, chf, fmt, pct, signed, tone, arrow, uid, today, dispDate } from './util.js';
 import { formDialog, confirmBox, toast } from './ui.js';
 
 const LIQ = ['konto'];
@@ -13,20 +13,23 @@ async function edit(a) {
   const v = await formDialog({
     title: a ? 'Position bearbeiten' : 'Neue Vermögensposition',
     // Beim Bearbeiten eines Kontos wird der aktuelle Stand (inkl. verknüpfter Sparbeiträge) neu als Ausgangsstand per heute gesetzt
-    values: a ? (a.type === 'konto' ? { ...a, qty: Math.round(calc.valuate(a).qty * 100) / 100, balanceDate: today() } : a) : { type: 'konto', currency: 'CHF', unit: 'oz', balanceDate: today() },
+    values: a ? (a.type === 'konto' ? { ...a, qty: Math.round(calc.valuate(a).qty * 100) / 100, balanceDate: today() } : a.valueMode ? { ...a, mode: 'value', valueNow: a.manualPrice, costValue: a.costPrice } : { ...a, mode: 'units' }) : { type: 'konto', currency: 'CHF', unit: 'oz', balanceDate: today(), mode: 'units' },
     fields: [
       { name: 'type', label: 'Typ', type: 'select', options: Object.entries(calc.TYPE_LABELS) },
       { name: 'name', label: 'Name', required: true },
-      { name: 'symbol', label: 'Symbol', only: ['aktie', 'etf', 'edelmetall'], list: ['XAU', 'XAG', 'XPT', 'XPD'], hint: 'Aktie/ETF z. B. NESN, AAPL · Metall: XAU Gold, XAG Silber, XPT Platin, XPD Palladium' },
-      { name: 'exchange', label: 'Börse (optional)', only: ['aktie', 'etf'], list: ['SIX', 'XETR', 'NYSE', 'NASDAQ', 'LSE', 'XPAR', 'TSX', 'HKEX', 'SSE', 'SZSE', 'NSE', 'TSE'], hint: 'Börsenkürzel wie bei Twelve Data; Freitext möglich' },
-      { name: 'qty', label: 'Menge / Kontostand', type: 'number', step: 'any', required: true },
+      { name: 'mode', label: 'Erfassung', type: 'select', only: ['aktie', 'etf', 'andere'], options: [['units', 'Stückzahl × Kurs (Börsenkurs wird abgerufen)'], ['value', 'Nur Wert in Währung (z. B. Fonds, Vorsorge) – Menge nicht nötig']] },
+      { name: 'valueNow', label: 'Aktueller Wert', type: 'number', step: 'any', required: true, only: ['aktie', 'etf', 'andere'], when: x => x.mode === 'value', hint: 'Gesamtwert der Position in der gewählten Währung. Zum Aktualisieren hier den neuen Wert eintragen.' },
+      { name: 'costValue', label: 'Einstandswert (Kaufbetrag gesamt)', type: 'number', step: 'any', only: ['aktie', 'etf', 'andere'], when: x => x.mode === 'value', hint: 'Daraus ergibt sich Gewinn/Verlust in CHF und Prozent.' },
+      { name: 'symbol', label: 'Symbol', only: ['aktie', 'etf', 'edelmetall'], when: x => x.mode !== 'value', list: ['XAU', 'XAG', 'XPT', 'XPD'], hint: 'Aktie/ETF z. B. NESN, AAPL · Metall: XAU Gold, XAG Silber, XPT Platin, XPD Palladium' },
+      { name: 'exchange', label: 'Börse (optional)', only: ['aktie', 'etf'], when: x => x.mode !== 'value', list: ['SIX', 'XETR', 'NYSE', 'NASDAQ', 'LSE', 'XPAR', 'TSX', 'HKEX', 'SSE', 'SZSE', 'NSE', 'TSE'], hint: 'Börsenkürzel wie bei Twelve Data; Freitext möglich' },
+      { name: 'qty', label: 'Menge / Kontostand', type: 'number', step: 'any', required: true, when: x => !(x.mode === 'value' && ['aktie', 'etf', 'andere'].includes(x.type)) },
       { name: 'balanceDate', label: 'Kontostand gilt per', type: 'date', only: ['konto'], hint: 'Verknüpfte Sparbeiträge ab dem Folgetag erhöhen den Stand automatisch.' },
       { name: 'unit', label: 'Einheit', type: 'select', only: ['edelmetall'], options: [['oz', 'Feinunze (oz)'], ['g', 'Gramm'], ['kg', 'Kilogramm']] },
       { name: 'currency', label: 'Währung (Konto / Einstandspreis)', type: 'select', options: fx.CURRENCIES.map(c => [c, c]) },
-      { name: 'costPrice', label: 'Einstandspreis je Einheit', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'] },
-      { name: 'costTotal', label: 'oder Einstandswert gesamt', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'], hint: 'Gesamter Kaufbetrag; wird in den Preis je Einheit umgerechnet.' },
+      { name: 'costPrice', label: 'Einstandspreis je Einheit', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'], when: x => x.mode !== 'value' },
+      { name: 'costTotal', label: 'oder Einstandswert gesamt', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'], when: x => x.mode !== 'value', hint: 'Gesamter Kaufbetrag; wird in den Preis je Einheit umgerechnet.' },
       { name: 'costFx', label: 'Wechselkurs bei Kauf → CHF (optional)', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall'], hint: 'CHF je 1 Fremdwährung beim Kauf. Leer = heutiger Kurs.' },
-      { name: 'manualPrice', label: 'Aktueller Kurs je Einheit (manuell)', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'], hint: 'Gilt, wenn kein Börsenkurs abrufbar ist. Fondsguthaben ohne Kurs: Menge = Guthaben in CHF und Kurs = 1.' },
+      { name: 'manualPrice', label: 'Aktueller Kurs je Einheit (manuell)', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'], when: x => x.mode !== 'value', hint: 'Gilt nur, wenn kein Börsenkurs abrufbar ist.' },
       ...(hasHousehold() ? [{ name: 'shared', label: 'Gemeinsam mit Haushalt', type: 'checkbox' }] : []),
     ],
   });
@@ -37,6 +40,11 @@ async function edit(a) {
     exchange: (v.exchange || '').trim().toUpperCase(), qty: +v.qty, ...(v.type === 'konto' ? { balanceDate: v.balanceDate || today() } : {}), unit: v.unit || '', currency: v.currency,
     costPrice: v.costTotal !== undefined && v.costTotal !== '' && +v.qty > 0 ? Math.round((+v.costTotal / +v.qty) * 1e8) / 1e8 : num(v.costPrice), costFx: num(v.costFx) || undefined, manualPrice: num(v.manualPrice),
   };
+  if (v.mode === 'value' && ['aktie', 'etf', 'andere'].includes(v.type)) {
+    // «Nur Wert»: Menge 1, aktueller Wert als Kurs, Einstandswert als Einstandspreis – Gewinn/Verlust ergibt sich daraus
+    Object.assign(rec, { valueMode: true, qty: 1, manualPrice: +v.valueNow, costPrice: v.costValue === '' || v.costValue === undefined ? '' : +v.costValue, symbol: '', exchange: '', unit: '', valueDate: today() });
+    delete rec.quote; delete rec.prevClose;
+  } else { delete rec.valueMode; delete rec.valueDate; }
   if (v.shared) rec.shared = true; else delete rec.shared;
   if (a && (a.symbol !== rec.symbol || a.exchange !== rec.exchange)) { delete rec.quote; delete rec.prevClose; }
   const list = db().assets, i = list.findIndex(x => x.id === rec.id);
@@ -71,10 +79,10 @@ export function render(el) {
   const row = r => {
     const a = r.a, foreign = a.currency !== 'CHF' || (r.priceCur && r.priceCur !== 'CHF');
     return `<tr>
-      <td><b>${esc(a.name)}</b>${a.shared ? '<span class="badge">Haushalt</span>' : ''}<div class="muted small">${esc(a.symbol || '')}${a.exchange ? ` · ${esc(a.exchange)}` : ''}</div></td>
-      <td class="num">${fmt(r.qty, a.type === 'konto' ? 2 : 4)}${a.type === 'edelmetall' ? ` ${a.unit}` : ''}${r.flow?.count ? `<div class="small pos">inkl. +${fmt(r.flow.amount)} aus ${r.flow.count} Sparbeitr${r.flow.count === 1 ? 'ag' : 'ägen'}</div>` : ''}</td>
+      <td><b>${esc(a.name)}</b>${a.shared ? '<span class="badge">Haushalt</span>' : ''}<div class="muted small">${a.valueMode ? 'Nur Wert' : esc(a.symbol || '')}${a.exchange ? ` · ${esc(a.exchange)}` : ''}</div></td>
+      <td class="num">${a.valueMode ? '' : fmt(r.qty, a.type === 'konto' ? 2 : 4)}${a.type === 'edelmetall' ? ` ${a.unit}` : ''}${r.flow?.count ? `<div class="small pos">inkl. +${fmt(r.flow.amount)} aus ${r.flow.count} Sparbeitr${r.flow.count === 1 ? 'ag' : 'ägen'}</div>` : ''}</td>
       <td class="num">${INV.includes(a.type) || a.type === 'andere' ? (a.costPrice === '' ? '–' : `${a.currency} ${fmt(+a.costPrice)}`) : ''}</td>
-      <td class="num">${LIQ.includes(a.type) ? '' : price(r)}</td>
+      <td class="num">${LIQ.includes(a.type) ? '' : a.valueMode ? `<span class="muted">Wert manuell</span>${a.valueDate ? `<div class="small muted">Stand ${dispDate(a.valueDate)}</div>` : ''}` : price(r)}</td>
       <td class="num">${foreign && r.valueCur != null ? `<div class="muted small">${r.priceCur} ${fmt(r.valueCur)}</div>` : ''}${chf(r.valueChf)}</td>
       <td class="num ${tone(r.pnlChf)}">${r.pnlChf == null ? '' : `<b>${arrow(r.pnlChf)} ${signed(r.pnlChf)}</b><div class="small">${pct(r.pnlPct)}</div>`}</td>
       <td class="num ${tone(r.dayChf)}">${r.dayChf == null ? '' : `${signed(r.dayChf)}<div class="small">${pct(r.dayPct)}</div>`}</td>

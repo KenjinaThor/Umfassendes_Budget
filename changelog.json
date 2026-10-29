@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.13.0",
+    "date": "2026-10-29",
+    "items": [
+      "Vermögen: Wertschriften/Fonds/Andere können jetzt «nur mit Wert» erfasst werden (aktueller Wert + Einstandswert, ohne Menge) – Gewinn/Verlust wird berechnet",
+      "Alternativ weiterhin Stückzahl × Börsenkurs (Kurse werden in der App aktualisiert)"
+    ]
+  },
+  {
     "version": "0.12.3",
     "date": "2026-10-29",
     "items": [
