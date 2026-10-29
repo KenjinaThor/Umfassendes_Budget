@@ -4,7 +4,7 @@ import * as calc from './calc.js';
 import * as fx from './fx.js';
 import { refreshQuotes } from './market.js';
 import { $, esc, chf, fmt, pct, signed, tone, arrow, uid, today, dispDate } from './util.js';
-import { formDialog, confirmBox, toast } from './ui.js';
+import { formDialog, confirmBox, toast, openDialog, closeDialog } from './ui.js';
 
 const LIQ = ['konto'];
 const INV = ['aktie', 'etf', 'edelmetall'];
@@ -53,6 +53,36 @@ async function edit(a) {
   return true;
 }
 
+/** Sammelerfassung: aktuelle Kurse bzw. Werte aller Positionen (ausser Konten) auf einen Blick nachtragen. */
+function manualValues(done) {
+  const list = db().assets.filter(a => a.type !== 'konto');
+  if (!list.length) { toast('Noch keine Wertschriften erfasst.'); return; }
+  const d = openDialog(`<form method="dialog" class="form"><h2>Aktuelle Kurse / Werte nachtragen</h2>
+    <p class="muted small">Pro Position den aktuellen Kurs je Einheit (bei «Nur Wert»: den aktuellen Gesamtwert) eintragen. Daraus werden Wert sowie Gewinn/Verlust gegenüber dem Einstand berechnet. Ein abrufbarer Börsenkurs hat Vorrang; leer lassen = kein manueller Wert.</p>
+    <div class="tablewrap"><table><thead><tr><th>Position</th><th class="num">Einstand</th><th class="num">Aktuell</th></tr></thead><tbody>
+    ${list.map(a => `<tr><td><b>${esc(a.name)}</b><div class="muted small">${a.valueMode ? 'Gesamtwert' : `Kurs je Einheit · ${fmt(+a.qty, 4)} Stück`}</div></td>
+      <td class="num">${a.costPrice === '' || a.costPrice == null ? '–' : `${a.currency} ${fmt(a.valueMode ? +a.costPrice : +a.costPrice)}${a.valueMode ? '' : ' / Stk.'}`}</td>
+      <td class="num"><input type="number" step="any" name="p_${esc(a.id)}" value="${a.manualPrice === '' || a.manualPrice == null ? '' : esc(String(a.manualPrice))}" placeholder="${a.quote ? `Börse ${fmt(a.quote.price)}` : ''}" aria-label="Aktuell ${esc(a.name)}" style="width:8.5rem;text-align:right"></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="actions"><button type="button" class="btn ghost" data-cancel>Abbrechen</button><button value="ok" class="btn primary">Speichern</button></div></form>`, { wide: true });
+  const form = d.querySelector('form');
+  form.querySelector('[data-cancel]').onclick = closeDialog;
+  form.addEventListener('submit', async e => {
+    if (e.submitter?.value !== 'ok') return;
+    let n = 0;
+    for (const a of list) {
+      const raw = new FormData(form).get(`p_${a.id}`);
+      const v = raw === null || raw === '' ? '' : +raw;
+      if (String(v) === String(a.manualPrice ?? '')) continue;
+      a.manualPrice = v;
+      if (v === '') { delete a.manualDate; if (a.valueMode) delete a.valueDate; } else if (a.valueMode) a.valueDate = today(); else a.manualDate = today();
+      n++;
+    }
+    if (n) { await save(); toast(`${n} Wert${n === 1 ? '' : 'e'} gespeichert`); }
+    done();
+  });
+}
+
 export async function refreshAll({ silent = false } = {}) {
   const d = db();
   const curs = d.assets.flatMap(a => [a.currency, a.quote?.currency]).concat(d.expense.map(t => t.currency), d.income.map(t => t.currency));
@@ -73,7 +103,7 @@ export function render(el) {
   const price = r => {
     if (r.price == null) return '<span class="muted">kein Kurs</span>';
     const mt = r.a.type === 'edelmetall' ? `/${r.a.unit}` : '';
-    const note = r.priceSource === 'cost' ? '<div class="small warnc">Einstand – kein Kurs</div>' : r.priceSource === 'manual' ? '<div class="small muted">manuell</div>' : '';
+    const note = r.priceSource === 'cost' ? '<div class="small warnc">Einstand – kein Kurs</div>' : r.priceSource === 'manual' ? `<div class="small muted">manuell${r.a.manualDate ? ` · ${dispDate(r.a.manualDate)}` : ''}</div>` : '';
     return `${r.priceCur} ${fmt(r.price, r.price < 10 ? 4 : 2)}${mt}${note}`;
   };
   const row = r => {
@@ -92,7 +122,7 @@ export function render(el) {
   const usedCur = [...new Set(db().assets.flatMap(a => [a.currency, a.quote?.currency]).filter(c => c && c !== 'CHF'))];
 
   el.innerHTML = `
-    <div class="pagehead"><h1>Vermögen</h1><div class="row"><button class="btn" id="refresh">↻ Kurse aktualisieren</button><button class="btn primary" id="add">+ Position</button></div></div>
+    <div class="pagehead"><h1>Vermögen</h1><div class="row"><button class="btn" id="refresh">↻ Kurse aktualisieren</button><button class="btn" id="manual">✎ Kurse/Werte nachtragen</button><button class="btn primary" id="add">+ Position</button></div></div>
     <div class="grid kpis">
       <section class="card"><h3>Gesamtvermögen</h3><div class="kpi">${chf(p.total)}</div></section>
       <section class="card"><h3>Gewinn/Verlust gesamt</h3><div class="kpi ${tone(p.pnl)}">${arrow(p.pnl)} ${chf(p.pnl)}</div><div class="muted">${pct(p.pnlPct)} auf Einstand</div></section>
@@ -109,6 +139,7 @@ export function render(el) {
     }).join('') || '<p class="muted">Noch keine Positionen. «+ Position» oder Excel-Import verwenden.</p>'}`;
 
   $('#add', el).onclick = async () => { if (await edit()) { render(el); } };
+  $('#manual', el).onclick = () => manualValues(() => render(el));
   $('#refresh', el).onclick = async e => {
     e.target.disabled = true; e.target.textContent = 'Lade…';
     await refreshAll(); render(el);

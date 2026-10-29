@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.13.1",
+    "date": "2026-10-29",
+    "items": [
+      "Vermögen: neue Sammelerfassung «Kurse/Werte nachtragen» – aktuelle Kurse bzw. Werte aller Positionen auf einen Blick eintragen, Gewinn/Verlust wird sofort berechnet"
+    ]
+  },
+  {
     "version": "0.13.0",
     "date": "2026-10-29",
     "items": [
