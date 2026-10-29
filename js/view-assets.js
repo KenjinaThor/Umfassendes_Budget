@@ -24,8 +24,9 @@ async function edit(a) {
       { name: 'unit', label: 'Einheit', type: 'select', only: ['edelmetall'], options: [['oz', 'Feinunze (oz)'], ['g', 'Gramm'], ['kg', 'Kilogramm']] },
       { name: 'currency', label: 'Währung (Konto / Einstandspreis)', type: 'select', options: fx.CURRENCIES.map(c => [c, c]) },
       { name: 'costPrice', label: 'Einstandspreis je Einheit', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'] },
+      { name: 'costTotal', label: 'oder Einstandswert gesamt', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'], hint: 'Gesamter Kaufbetrag; wird in den Preis je Einheit umgerechnet.' },
       { name: 'costFx', label: 'Wechselkurs bei Kauf → CHF (optional)', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall'], hint: 'CHF je 1 Fremdwährung beim Kauf. Leer = heutiger Kurs.' },
-      { name: 'manualPrice', label: 'Aktueller Kurs (manuell)', type: 'number', step: 'any', only: ['andere'] },
+      { name: 'manualPrice', label: 'Aktueller Kurs je Einheit (manuell)', type: 'number', step: 'any', only: ['aktie', 'etf', 'edelmetall', 'andere'], hint: 'Gilt, wenn kein Börsenkurs abrufbar ist. Fondsguthaben ohne Kurs: Menge = Guthaben in CHF und Kurs = 1.' },
       ...(hasHousehold() ? [{ name: 'shared', label: 'Gemeinsam mit Haushalt', type: 'checkbox' }] : []),
     ],
   });
@@ -34,7 +35,7 @@ async function edit(a) {
   const rec = {
     ...(a || { id: uid() }), type: v.type, name: v.name.trim(), symbol: (v.symbol || '').trim().toUpperCase(),
     exchange: (v.exchange || '').trim().toUpperCase(), qty: +v.qty, ...(v.type === 'konto' ? { balanceDate: v.balanceDate || today() } : {}), unit: v.unit || '', currency: v.currency,
-    costPrice: num(v.costPrice), costFx: num(v.costFx) || undefined, manualPrice: num(v.manualPrice),
+    costPrice: v.costTotal !== undefined && v.costTotal !== '' && +v.qty > 0 ? Math.round((+v.costTotal / +v.qty) * 1e8) / 1e8 : num(v.costPrice), costFx: num(v.costFx) || undefined, manualPrice: num(v.manualPrice),
   };
   if (v.shared) rec.shared = true; else delete rec.shared;
   if (a && (a.symbol !== rec.symbol || a.exchange !== rec.exchange)) { delete rec.quote; delete rec.prevClose; }
@@ -64,7 +65,8 @@ export function render(el) {
   const price = r => {
     if (r.price == null) return '<span class="muted">kein Kurs</span>';
     const mt = r.a.type === 'edelmetall' ? `/${r.a.unit}` : '';
-    return `${r.priceCur} ${fmt(r.price, r.price < 10 ? 4 : 2)}${mt}`;
+    const note = r.priceSource === 'cost' ? '<div class="small warnc">Einstand – kein Kurs</div>' : r.priceSource === 'manual' ? '<div class="small muted">manuell</div>' : '';
+    return `${r.priceCur} ${fmt(r.price, r.price < 10 ? 4 : 2)}${mt}${note}`;
   };
   const row = r => {
     const a = r.a, foreign = a.currency !== 'CHF' || (r.priceCur && r.priceCur !== 'CHF');
@@ -88,6 +90,7 @@ export function render(el) {
       <section class="card"><h3>Gewinn/Verlust gesamt</h3><div class="kpi ${tone(p.pnl)}">${arrow(p.pnl)} ${chf(p.pnl)}</div><div class="muted">${pct(p.pnlPct)} auf Einstand</div></section>
       <section class="card"><h3>Heute</h3><div class="kpi ${tone(p.day)}">${arrow(p.day)} ${chf(p.day)}</div></section>
     </div>
+    ${p.rows.some(r => r.priceSource === 'cost') ? `<div class="banner">${p.rows.filter(r => r.priceSource === 'cost').map(r => esc(r.a.name)).join(', ')}: kein Kurs verfügbar – die Position ist zum <b>Einstandswert</b> im Vermögen enthalten (Gewinn/Verlust 0). Aktuellen Kurs mit ✎ manuell eintragen oder Symbol/Twelve-Data-Schlüssel prüfen.</div>` : ''}
     ${p.needsFx ? '<div class="banner">Wechselkurse fehlen – bitte «Kurse aktualisieren» (Internet nötig).</div>' : ''}
     ${usedCur.length ? `<p class="muted small">Wechselkurse (EZB): ${usedCur.map(c => rate(c) || `${c} –`).join(' · ')} → CHF${fx.latestDate() ? `, Stand ${fx.latestDate()}` : ''}</p>` : ''}
     ${groups.map(([label, types]) => {

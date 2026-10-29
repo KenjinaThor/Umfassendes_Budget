@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.12.1",
+    "date": "2026-10-29",
+    "items": [
+      "Vermögen: ETFs/Fonds/Aktien ohne Börsenkurs fehlen nicht mehr im Gesamtvermögen – aktueller Kurs kann manuell eingetragen werden, sonst gilt der Einstandswert (mit Hinweis)",
+      "Einstand alternativ als Gesamtbetrag erfassbar; Gewinn/Verlust wird mit manuellem Kurs berechnet"
+    ]
+  },
+  {
     "version": "0.12.0",
     "date": "2026-10-29",
     "items": [

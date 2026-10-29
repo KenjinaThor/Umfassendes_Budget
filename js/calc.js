@@ -106,6 +106,9 @@ export function valuate(a) {
   } else if (a.manualPrice != null && a.manualPrice !== '') {
     price = Number(a.manualPrice);
   }
+  // Quelle des Kurses: Börse, manuell oder (ohne Kurs) Einstandswert als Ersatz, damit die Position im Vermögen nicht fehlt
+  let priceSource = a.type === 'konto' ? null : a.quote ? 'quote' : price != null ? 'manual' : null;
+  if (price == null && a.type !== 'konto' && a.costPrice !== '' && a.costPrice != null) { price = Number(a.costPrice); priceCur = cur; priceSource = 'cost'; }
 
   const rPrice = fx.latest(priceCur);
   const rCost = a.costFx || fx.latest(cur);
@@ -119,7 +122,7 @@ export function valuate(a) {
   const dayPct = price != null && prev ? ((price - prev) / prev) * 100 : null;
 
   return {
-    a, qty, flow, price, priceCur, valueCur: price != null ? qty * price : null,
+    a, qty, flow, price, priceCur, priceSource, valueCur: price != null ? qty * price : null,
     valueChf, costChf, pnlChf, pnlPct, dayChf, dayPct,
     needsFx: price != null && rPrice == null,
     stale: a.quote ? a.quote.date : null,
