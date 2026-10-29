@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.14.0",
+    "date": "2026-10-29",
+    "items": [
+      "Automatische Börsenkurse für Aktien/ETFs aller wichtigen Börsen (auch SIX) über eine Supabase-Funktion; Gewinn/Verlust und Tagesveränderung werden automatisch berechnet",
+      "Twelve Data bleibt als Ersatz; Positionen «Nur Wert» werden nicht abgerufen"
+    ]
+  },
+  {
     "version": "0.13.1",
     "date": "2026-10-29",
     "items": [

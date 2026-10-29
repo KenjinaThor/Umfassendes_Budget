@@ -58,6 +58,15 @@ export const account = () => ({ email: st.email, displayName: st.displayName, us
 export const storageApi = () => getSb().storage.from('docs');
 export const ensureOnline = () => ensureSession();
 
+/** Supabase Edge Function aufrufen (z. B. Börsenkurse). */
+export async function callFunction(name, body) {
+  if (!isCloud) throw new Error('Nur im Cloud-Modus verfügbar');
+  if (!(await ensureSession())) throw new Error('Nicht angemeldet oder offline');
+  const { data, error } = await getSb().functions.invoke(name, { body });
+  if (error) throw new Error(error.context?.status === 404 ? 'Kurs-Funktion nicht eingerichtet (siehe docs/KURSE.md)' : (error.message || 'Kurs-Funktion nicht erreichbar'));
+  return data;
+}
+
 const stable = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
   ? Object.fromEntries(Object.keys(x).sort().map(key => [key, x[key]])) : x));
 const recHash = r => stable(Object.fromEntries(Object.entries(r).filter(([k]) => !TRANSIENT.has(k))));
